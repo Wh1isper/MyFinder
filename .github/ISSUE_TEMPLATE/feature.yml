@@ -1,0 +1,22 @@
+name: Feature or design proposal
+description: Propose a concrete capability or behavior change
+title: '[Proposal]: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected behavior and completion criteria
+      description: Include relevant configuration, display/fullscreen behavior, and how to verify the result.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Constraints and alternatives
