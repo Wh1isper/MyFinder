@@ -1,1 +1,5 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Wh1isper/MyFinder/security/advisories/new
+    about: Report suspected vulnerabilities privately, not in a public issue.

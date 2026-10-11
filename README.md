@@ -1,5 +1,7 @@
 # MyFinder
 
+[![CI](https://github.com/Wh1isper/MyFinder/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Wh1isper/MyFinder/actions/workflows/ci.yml) [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
+
 A Windows monitoring bar built with C# and WinUI 3.
 
 **Status: engineering foundation, not a finished monitoring application.** The current application opens a development window. Build, package, and test commands are provided; CPU/network/memory/disk widgets and desktop-bar behavior are not implemented yet. No mock metrics are presented as real monitoring.
@@ -31,9 +33,11 @@ $env:PATH = "$env:LOCALAPPDATA\Microsoft\dotnet;$env:PATH"
 dotnet --version
 ```
 
-From a checkout, run:
+Clone the repository, then build:
 
 ```powershell
+git clone https://github.com/Wh1isper/MyFinder.git
+cd MyFinder
 ./scripts/build.ps1
 ./artifacts/app/MyFinder.exe
 ```
@@ -151,6 +155,10 @@ Documentation stays in root Markdown files for now; there is no separate `docs/`
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). Read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+
+## Sponsor
+
+Support development through [GitHub Sponsors: Wh1isper](https://github.com/sponsors/Wh1isper). Sponsorship helps fund ongoing development and maintenance; it does not change the project's open-source license.
 
 ## License
 
