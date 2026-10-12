@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Wh1isper/MyFinder/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Wh1isper/MyFinder/actions/workflows/ci.yml) [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
-A Windows monitoring bar built with C# and WinUI 3.
+A movable, persistent Windows monitoring panel built with C# and WinUI 3.
 
 **Status: engineering foundation, not a finished monitoring application.** The current application opens a development window. Build, package, and test commands are provided; CPU/network/memory/disk widgets and desktop-bar behavior are not implemented yet. No mock metrics are presented as real monitoring.
 
@@ -10,10 +10,17 @@ A Windows monitoring bar built with C# and WinUI 3.
 
 Deliver complete modules, including configuration, failure behavior, tests, and documentation:
 
-- A top bar and compact indicator with automatic hiding, delayed collapse, and configurable fullscreen hiding.
-- Per-display placement and settings, mixed-DPI layouts, display hot-plug, and recovery after sleep or Explorer restart.
-- Built-in CPU, memory, network, and disk monitoring with shared sampling and detail/history panels.
-- Explicit configuration for display selection, visibility policies, timing, widgets, and sampling.
+- A normally visible, movable panel with horizontal and vertical layouts, optional four-edge alignment, and position locking. No edge auto-hide or delayed collapse.
+- A persistent tray entry for explicit show/hide, settings, and exit, with configurable fullscreen retreat on the panel's display that preserves manual visibility intent.
+- Per-display placement, mixed-DPI layouts, display hot-plug, and recovery after sleep or Explorer restart.
+- Built-in CPU, memory, network, and storage monitoring, with click-to-open larger detail views, recent line charts, meaningful pie/ring charts, and resource facts such as disk capacity.
+- Concurrent monitoring of multiple drives, with independent compact-panel selection and detail inspection; switching inspected resources does not reset their histories.
+- Adjustable compact size, three styles, and system-following light/dark appearance. Optional background-only opacity preserves foreground readability, with a solid fallback.
+- Explicit preferences for placement, layout, visibility, selected metrics/resources, observation cadence, and recent-history presentation.
+
+The adopted compatibility target is Windows 10 21H2 build 19044 or newer, x64; this is not a vendor lifecycle-support claim. Matching runtime and packaging tests are required before that target becomes a shipped capability. **The current foundation still requires Windows 11 build 22000 or newer.** Design images do not establish runtime or packaging compatibility.
+
+Read the [design specification](spec/README.md) from overview to detailed flows, and compare the [visual prototypes](spec/prototypes/README.md). They describe the target product, not implemented capabilities. The [design principles and boundaries](spec/08-design-baseline.md) connect the high-level concepts; concrete tuning parameters and verification environments belong to implementation planning.
 
 Fullscreen overlays are not universally guaranteed, particularly for exclusive-fullscreen games. The implementation must distinguish maximized windows, borderless fullscreen, and exclusive fullscreen. No process injection or Explorer replacement is planned.
 
@@ -143,6 +150,7 @@ This explicitly enables installation tests that temporarily trust their own test
 - `scripts`: shared local/CI build, test, packaging, and signing commands.
 - `tests`: executable packaging, launch, and installation checks.
 - `packaging`: MSIX manifest and original application assets.
+- `spec`: high-level product and technical design, with written rationale, architecture diagrams, interaction flows, and review decisions.
 - `.github/workflows/ci.yml`: Windows build, tests, packaging, and retained test reports on pull requests and `main`.
 - `.github/workflows/release.yml`: reruns CI for a `v<version>` tag and creates a **draft** GitHub Release with unsigned artifacts. No Store, package-registry, or automatic public distribution is configured.
 
@@ -150,7 +158,7 @@ The release tag must match `Directory.Build.props`. GitHub provides the correspo
 
 For a dependency update, change the package version, run `dotnet restore src/MyFinder/MyFinder.csproj --force-evaluate`, commit the updated lock file, and run the checks. Normal builds use locked restore.
 
-Documentation stays in root Markdown files for now; there is no separate `docs/` site.
+Build and contributor documentation stays in root Markdown files; conceptual design lives in `spec/`. There is no separate `docs/` site.
 
 ## Contributing
 

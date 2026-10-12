@@ -1,6 +1,6 @@
 # Repository Guide
 
-MyFinder is an independently implemented Windows monitoring bar. Read README.md for implemented capabilities and commands; planned features are not completed behavior.
+MyFinder is an independently implemented, movable Windows monitoring panel. Read README.md for implemented capabilities and commands, and spec/README.md for target product design; planned features are not completed behavior.
 
 ## Working rules
 
@@ -10,7 +10,8 @@ MyFinder is an independently implemented Windows monitoring bar. Read README.md 
 - Deliver complete capability modules: state and configuration, behavior, UI, meaningful tests, and documentation together. Do not substitute mock metrics or staged demos for completed modules.
 - Keep implementation on one primary working line. Use subagents only for bounded exploration or justified independent review unless the owner requests otherwise.
 - Preserve unrelated changes. Ask before changing product scope or unresolved externally visible behavior.
-- Keep documentation in root Markdown files. Do not create a docs/ directory unless requested.
+- Keep operational documentation in root Markdown files and conceptual design in spec/. Do not create a docs/ directory unless requested.
+- Keep spec/ at high-level design scope: explain goals, responsibility boundaries, technical choices, rationale and tradeoffs in prose, supported by Mermaid architecture diagrams and flowcharts. Do not replace explanations with diagrams alone or expand into code, API signatures or class designs. Keep spec/ conceptual: no dates, approval history, decision log, exact tuning tables or test-execution records. spec/08-design-baseline.md explains design principles and boundaries, not a parameter contract. Put detailed parameters and test matrices in implementation planning; never confuse design intent with verified implementation.
 
 ## Structure and boundaries
 
@@ -23,9 +24,13 @@ MyFinder is an independently implemented Windows monitoring bar. Read README.md 
 
 ## Desktop behavior
 
-Automatic hiding, delayed collapse, fullscreen policies, per-display placement, DPI, focus, input hit testing, and popup lifetimes must be designed together. Distinguish maximized, borderless-fullscreen, and exclusive-fullscreen applications. Do not promise universal overlay compatibility. Do not inject into other processes or replace Explorer.
+The panel is normally persistent, movable, and available in horizontal or vertical layouts. Edge alignment is only a placement aid: do not reintroduce edge auto-hide, delayed collapse, or edge wake-up zones. A persistent tray entry owns explicit show/hide, settings, and exit.
 
-Monitoring must distinguish unavailable data from a real zero. Share sampling where appropriate, bound history, and avoid expensive drawing for closed detail panels. Do not run the whole application as administrator to obtain optional sensor data.
+Manual visibility intent takes precedence over automatic fullscreen retreat. Retreat is local to the panel's display and must not overwrite user intent; leaving fullscreen must not reshow a manually hidden panel or reopen dismissed details. Design placement, DPI, focus, input hit testing, and detail lifetimes together. Distinguish maximized, borderless-fullscreen, and exclusive-fullscreen applications. Do not promise universal overlay compatibility. Do not inject into other processes or replace Explorer.
+
+Keep orientation, style and readable size independent. The compact footprint must not grow with the monitored drive count. Monitor, compact-pin and detail-inspection selections are separate; changing inspection preserves other resources' collection and histories. Follow system light/dark appearance consistently; optional background opacity must not fade foreground data. The Windows 10+ product target is not the current Windows 11 implementation baseline.
+
+Monitoring must distinguish unavailable data from a real zero. Share sampling where appropriate, bound history, and avoid expensive drawing for closed detail panels. Click-to-open details include larger recent-trend charts, meaningful part-to-whole charts, and exact resource facts. Keep units, resource identity, timestamps, gaps, and capacity-versus-activity meaning explicit. Do not run the whole application as administrator to obtain optional sensor data.
 
 ## Validation
 
