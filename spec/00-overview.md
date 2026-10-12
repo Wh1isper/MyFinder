@@ -23,7 +23,7 @@ flowchart TD
 
 ## Conceptual Responsibilities
 
-The adopted architecture is one desktop application in the user's session, using the repository's existing C# / WinUI 3 / .NET foundation. There is no requirement for a service, an elevated companion process, an embedded web application, or a plugin host. This is a technical direction, not a claim that the current foundation already owns the following behavior.
+The architecture is one desktop application in the user's session, using the repository's existing C# / WinUI 3 / .NET foundation. There is no requirement for a service, an elevated companion process, an embedded web application, or a plugin host. This is a technical direction, not a claim that the current foundation already owns the following behavior.
 
 | Responsibility | Owns | Does not own |
 | --- | --- | --- |
@@ -57,14 +57,14 @@ flowchart TB
 ## Technical Choices and Tradeoffs
 
 - **One source of presentation decisions.** Tray actions, fullscreen changes and display recovery are inputs to the same decision. Letting each window decide independently would make hide/show ordering difficult to reason about.
-- **One compact panel plus one contextual detail view is the adopted initial scope.** It supports occasional deep inspection without turning the desktop into a collection of independent chart windows. Settings are a separate explicit interaction, not another monitoring dashboard.
+- **One compact panel plus one contextual detail view defines the surface boundary.** It supports occasional deep inspection without turning the desktop into a collection of independent chart windows. Settings are a separate explicit interaction, not another monitoring dashboard.
 - **A floating surface, not a reserved desktop strip.** This preserves ordinary application layout, at the cost of possible overlap. Dragging and manual hiding are the remedies; automatic wandering around other windows is excluded.
-- **Local, bounded recent observations.** History is session-local and bounded to at most one hour, not a durable monitoring database. Cross-restart observations are excluded; only user preferences persist.
+- **Local, bounded recent observations.** History is session-local and bounded, not a durable monitoring database. Cross-restart observations are excluded; only user preferences persist.
 - **Built-in monitoring domains.** Adding a new metric should extend the common observation and presentation concepts, not require a general-purpose plugin system.
 
 ## Scope Boundaries
 
-The behavior below defines the product boundary. One panel is the adopted scope; simultaneous panels on multiple displays are excluded from the initial product. Multi-display correctness remains required. Exact defaults and acceptance gates are fixed in [the adopted baseline](08-design-baseline.md).
+The behavior below defines the product boundary. One panel defines the scope; simultaneous panels on multiple displays are excluded from the initial product. Multi-display correctness remains required. [Design principles and boundaries](08-design-baseline.md) connect these choices and their tradeoffs.
 
 ```mermaid
 flowchart TD
@@ -78,6 +78,6 @@ flowchart TD
     Excluded --> Shell["No reserved desktop strip or replacement desktop shell"]
     Excluded --> Overlay["No promise to draw above exclusive-fullscreen applications"]
     Excluded --> Platform["No plugin platform, cloud monitoring or fleet dashboard"]
-    Design --> Proposal["Adopted shape: one movable panel on a chosen display"]
+    Design --> Proposal["One movable panel on a chosen display"]
     Proposal --> Scope["Remember placement per display; simultaneous duplicate panels are excluded"]
 ```

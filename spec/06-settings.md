@@ -29,15 +29,15 @@ flowchart TB
 
 Follow Windows light/dark appearance by default across the panel, details and settings; explicit Light and Dark overrides are included. Orientation, style and readable size are separate controls. Theme changes do not reset monitoring, visibility intent or placement.
 
-Background opacity is an included optional adjustment, **80%–100% in 5% steps, initially 100%**, shared by the panel and details. Settings stay solid. Text, charts, focus indicators and input targets do not fade. Alpha, desktop blur and click-through are different behaviors; the initial product includes only plain background alpha. Blur materials, click-through and whole-window fading are excluded. Transparency disabled, high contrast, battery saver or unavailable support forces a readable solid background without erasing the saved preference. Settings explains the effective fallback.
+Background opacity is an optional adjustment shared by the panel and details, with an opaque default. Settings stay solid. Text, charts, focus indicators and input targets do not fade. Alpha, desktop blur and click-through are different behaviors; the initial product includes only plain background alpha. Blur materials, click-through and whole-window fading are excluded. Transparency disabled, high contrast, battery saver or unavailable support forces a readable solid background without erasing the saved preference. Settings explains the effective fallback.
 
-The adopted compatibility floor is **Windows 10 21H2 build 19044, x64**. It is a product target, not a claim of vendor lifecycle support or completed compatibility testing. The current repository foundation still requires Windows 11 build 22000 or newer. This design commit changes no manifest, runtime or dependency. The [baseline evidence gates](08-design-baseline.md#compatibility-and-evidence-gates) must pass before changing shipped compatibility claims.
+The design targets Windows 10 and newer. Appearance should degrade through readable fallbacks rather than make basic monitoring depend on optional platform effects. Actual supported builds and runtime requirements are operational facts documented in the project README, separate from this conceptual design.
 
 ## Remembered Choices versus Temporary Context
 
 Persist user choices across restarts, not incidental desktop state. Remembering hidden intent is different from remembering that fullscreen happened to be active when the application exited. A temporary fallback monitor does not replace the preferred display unless the user makes a new placement choice.
 
-Preferences are application-local and per-user, with no cloud synchronization or export platform. Saving preferences must preserve unrelated choices and avoid a partially written configuration. Unreadable or unavailable choices produce a reachable application with clear feedback, not elevated operation or silent erasure of all valid preferences. The concrete storage format and migration mechanism are implementation decisions, not unresolved product behavior.
+Preferences are application-local and per-user, with no cloud synchronization or export platform. Saving preferences must preserve unrelated choices and avoid a partially written configuration. Unreadable or unavailable choices produce a reachable application with clear feedback, not elevated operation or silent erasure of all valid preferences. Storage format and migration mechanisms are outside this high-level design.
 
 ```mermaid
 flowchart TB
@@ -71,29 +71,18 @@ flowchart TD
     Scope --> NoMix["Never silently blend incompatible histories"]
 ```
 
-## Review Decisions
+## Settings Boundaries
 
-**Closed on October 12, 2026 under the owner's authorization to finalize the design.** [Chapter 08](08-design-baseline.md) records all adopted defaults, exact ranges, resource limits, excluded alternatives and acceptance targets. This is a decision record, not a remaining approval queue.
+A setting should express a user-visible choice, not an internal mechanism. The useful distinction is between preferences that affect observation, presentation and visibility. Making these effects clear avoids unnecessary mode combinations and prevents one setting from resetting unrelated state.
 
-| Topic | Adopted baseline |
-| --- | --- |
-| Surfaces | One movable panel, one contextual detail window, one explicitly opened settings window. No duplicate panels or pinned dashboards. |
-| First run | Shown, horizontal Balanced at 100%, top-center of primary usable area with a 12-logical-pixel inset, unlocked. |
-| Size | Three styles in both orientations; 100%–200% adjustment; measured content and text scale can increase the minimum. |
-| Resource scope | Concurrent monitored set, independent compact pins, separate inspection, comparisons of at most three resources. |
-| Appearance | Follow system; Light/Dark overrides; 80%–100% background-only opacity, default solid; no blur or click-through. |
-| Compatibility | Windows 10 21H2 build 19044+ x64 target; existing foundation remains Windows 11 until matching evidence permits a change. |
-| Observation | One-second default dynamic sampling, ten-second capacity refresh, sixty-second slow facts. |
-| History | Session-only, default one hour, bounded by 64 MiB observation payload; 1/5/15/60-minute chart ranges, initially five. |
-| Details | Reuse one view; dismiss on Escape, close, outside interaction, settings, hide, retreat or a completed panel move. |
-| Restart | Restore preferences, not observations, address reveals or open details. |
-| Acceptance | Named OS, application, display, data-quality and performance scenarios in chapter 08; no invented passes. |
+Defaults provide a coherent starting experience: a visible compact panel, system-following appearance and useful built-in resource summaries. They do not create a second monitoring model. Fine-grained control ranges and initial numeric values belong to detailed design rather than this responsibility model.
 
 ```mermaid
 flowchart LR
-    Baseline["Adopted product choices"] --> Plan["Implementation planning"]
-    Baseline --> Scope["Explicitly excluded alternatives stay excluded"]
-    Plan --> Evidence["Behavior, compatibility and performance verification"]
-    Evidence --> Report["Document actual capability and tested limits"]
-    Report --> Honest["A design decision is not implementation evidence"]
+    Choice["User preference"] --> Collection["Observation scope and recent context"]
+    Choice --> Presentation["Layout, appearance and units"]
+    Choice --> Visibility["Manual intent and fullscreen policy"]
+    Collection --> Preserve["Preserve unrelated preferences and resource identity"]
+    Presentation --> Preserve
+    Visibility --> Preserve
 ```

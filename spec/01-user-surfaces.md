@@ -6,7 +6,7 @@
 
 The compact panel answers **what is happening now**. The detail view answers **what changed recently and what does this resource contain**. The tray is the persistent control path when the panel is not visible; hiding is not quitting.
 
-The adopted surface arrangement is a compact, non-disruptive panel, one larger contextual detail view, and an explicitly opened settings view. The tray belongs to the application rather than to the lifetime of a visible panel. Closing details or settings must not terminate monitoring. Ordinary readings do not take keyboard focus; an explicit inspection can accept keyboard interaction.
+The surface arrangement is a compact, non-disruptive panel, one larger contextual detail view, and an explicitly opened settings view. The tray belongs to the application rather than to the lifetime of a visible panel. Closing details or settings must not terminate monitoring. Ordinary readings do not take keyboard focus; an explicit inspection can accept keyboard interaction.
 
 Horizontal and vertical layouts use the same metric selection and order. Their information hierarchy is shared, but their spacing and arrangement are designed for their shape. Neither is a rotated screenshot of the other.
 
@@ -31,7 +31,7 @@ Orientation, visual style and size are independent choices. The three supported 
 
 The panel has an adjustable size with a minimum usable layout. Reduce optional sparklines and spacing before sacrificing readable values, units, resource identity or interaction targets. Do not uniformly shrink text and controls to satisfy an arbitrary rectangle. Text scaling can increase the minimum. If the user's selected content cannot fit, explain the constraint or allow an explicit content choice; do not rotate metrics automatically or hide essential units.
 
-**Adopted base sizes:** Minimal is 432 × 32, Balanced 528 × 48 and Capsules 528 × 40 logical pixels in the four-metric horizontal layout. Vertical equivalents, 100%–200% sizing, content-driven minimums and text-scale rules are defined in [the sizing contract](08-design-baseline.md#sizing-contract). These targets require native validation; they are not measurements. Board 13 distinguishes desktop illustration scale from its 1:1 component drawing.
+Size expresses a preference within content-driven usability limits. Different styles and orientations have different space needs, but all retain readable values and operable controls. The [surface principles](08-design-baseline.md#readable-adaptable-surfaces) take precedence over a fixed rectangle. Dimensions in prototype boards illustrate desktop occupation; they are not a native sizing contract.
 
 Details have their own size and information budget. The wide layout uses a resource rail, chart area and fact groups; a narrow layout replaces the rail with a resource chooser and moves secondary facts below the chart. Keep the heading, close action, range and current quality reachable. Scroll detail content rather than shrinking all typography or enlarging the persistent panel. Resizing or switching resources must not reset collection or history.
 

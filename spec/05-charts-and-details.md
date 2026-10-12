@@ -8,7 +8,7 @@ The detail view is an inspection surface rather than an enlarged copy of the pan
 
 Line charts answer questions about change. Pie or ring charts answer part-to-whole questions at a clearly identified time. Exact figures remain visible beside both. The chart type follows the meaning of the data: network receive and send rates are not slices of a fixed whole, and overlapping memory categories must not be added into a misleading pie. A temporal average must not be labeled as the current composition.
 
-The initial technical decision is to use the existing native UI drawing facilities for bounded lines, composition bars and rings, without an additional chart package. The acceptance criteria are readable rendering, accessible pointer/keyboard exact-value inspection and controlled drawing cost. This deliberately small chart scope avoids a dependency chosen from screenshots alone; revisit the choice only if measured implementation evidence fails those criteria. Default composition is a bar, with an explicit Bar/Ring preference for memory and storage.
+The chart scope is limited to bounded lines, composition bars and rings, which favors native UI drawing over introducing a general charting platform. The acceptance criteria are readable rendering, accessible pointer/keyboard exact-value inspection and controlled drawing cost. This deliberately small chart scope avoids a dependency chosen from screenshots alone; revisit the choice only if measured implementation evidence fails those criteria. Default composition is a bar, with an explicit Bar/Ring preference for memory and storage.
 
 ```mermaid
 flowchart TD
@@ -26,9 +26,9 @@ flowchart TD
 
 ## Detail Content and Information Budget
 
-The second-round hierarchy borrows the useful organization of Task Manager's Performance view: a resource navigator, a selected trend, prominent current readings, and resource-specific facts. This is an information-architecture reference, not a reproduction of Task Manager or a claim to implement all its counters. The panel stays a glance surface; the additional content belongs in temporary inspection.
+The inspection hierarchy borrows the useful organization of Task Manager's Performance view: a resource navigator, a selected trend, prominent current readings, and resource-specific facts. This is an information-architecture reference, not a reproduction of Task Manager or a claim to implement all its counters. The panel stays a glance surface; the additional content belongs in temporary inspection.
 
-**Adopted field inventory:** core fields define the intended resource experience; secondary fields are shown when their source and meaning can be established. Unsupported fields carry an explanation, not a fabricated zero. Specifications do not promise universal hardware access. Optional facts should not displace the main chart or turn every unavailable sensor into a large empty card.
+**Resource content:** core fields define the intended resource experience; secondary fields are shown when their source and meaning can be established. Unsupported fields carry an explanation, not a fabricated zero. Specifications do not promise universal hardware access. Optional facts should not displace the main chart or turn every unavailable sensor into a large empty card.
 
 | Domain | Primary chart and current readings | Supporting facts | Scope and caveats |
 | --- | --- | --- | --- |

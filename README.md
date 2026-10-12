@@ -15,12 +15,12 @@ Deliver complete modules, including configuration, failure behavior, tests, and 
 - Per-display placement, mixed-DPI layouts, display hot-plug, and recovery after sleep or Explorer restart.
 - Built-in CPU, memory, network, and storage monitoring, with click-to-open larger detail views, recent line charts, meaningful pie/ring charts, and resource facts such as disk capacity.
 - Concurrent monitoring of multiple drives, with independent compact-panel selection and detail inspection; switching inspected resources does not reset their histories.
-- Adjustable compact size, three styles, and system-following light/dark appearance. Background-only opacity is adjustable from 80% to 100%, defaulting to solid, in the adopted design.
+- Adjustable compact size, three styles, and system-following light/dark appearance. Optional background-only opacity preserves foreground readability, with a solid fallback.
 - Explicit preferences for placement, layout, visibility, selected metrics/resources, observation cadence, and recent-history presentation.
 
 The adopted compatibility target is Windows 10 21H2 build 19044 or newer, x64; this is not a vendor lifecycle-support claim. Matching runtime and packaging tests are required before that target becomes a shipped capability. **The current foundation still requires Windows 11 build 22000 or newer.** Design images do not establish runtime or packaging compatibility.
 
-Read the [design specification](spec/README.md) from overview to detailed flows, and compare the [visual prototypes](spec/prototypes/README.md). They describe the target product, not implemented capabilities. The [adopted baseline](spec/08-design-baseline.md) closes the design choices and records exact defaults, scope limits and evidence gates for implementation planning.
+Read the [design specification](spec/README.md) from overview to detailed flows, and compare the [visual prototypes](spec/prototypes/README.md). They describe the target product, not implemented capabilities. The [design principles and boundaries](spec/08-design-baseline.md) connect the high-level concepts; concrete tuning parameters and verification environments belong to implementation planning.
 
 Fullscreen overlays are not universally guaranteed, particularly for exclusive-fullscreen games. The implementation must distinguish maximized windows, borderless fullscreen, and exclusive fullscreen. No process injection or Explorer replacement is planned.
 

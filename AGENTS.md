@@ -11,7 +11,7 @@ MyFinder is an independently implemented, movable Windows monitoring panel. Read
 - Keep implementation on one primary working line. Use subagents only for bounded exploration or justified independent review unless the owner requests otherwise.
 - Preserve unrelated changes. Ask before changing product scope or unresolved externally visible behavior.
 - Keep operational documentation in root Markdown files and conceptual design in spec/. Do not create a docs/ directory unless requested.
-- Keep spec/ at high-level design scope: explain goals, responsibility boundaries, technical choices, rationale and tradeoffs in prose, supported by Mermaid architecture diagrams and flowcharts. Do not replace explanations with diagrams alone or expand into code, API signatures or class designs. Follow the adopted defaults and scope in spec/08-design-baseline.md. Record future changes explicitly; never confuse decided requirements with verified implementation.
+- Keep spec/ at high-level design scope: explain goals, responsibility boundaries, technical choices, rationale and tradeoffs in prose, supported by Mermaid architecture diagrams and flowcharts. Do not replace explanations with diagrams alone or expand into code, API signatures or class designs. Keep spec/ conceptual: no dates, approval history, decision log, exact tuning tables or test-execution records. spec/08-design-baseline.md explains design principles and boundaries, not a parameter contract. Put detailed parameters and test matrices in implementation planning; never confuse design intent with verified implementation.
 
 ## Structure and boundaries
 

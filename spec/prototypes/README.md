@@ -1,6 +1,6 @@
 # Visual Prototypes
 
-These are **static illustrations of the adopted design baseline**, not application screenshots. Every reading, history series, resource name and capacity is illustrative. No prototype measures the computer. The owner authorized finalizing the design on October 12, 2026; [chapter 08](../08-design-baseline.md) owns exact defaults, dimensions, scope and acceptance targets. Native layout and compatibility remain to be implemented and verified.
+These are **static illustrations of the high-level design**, not application screenshots. Every reading, history series, resource name and capacity is illustrative. No prototype measures the computer. [Chapter 08](../08-design-baseline.md) explains the underlying principles and boundaries. Dimensions and control values illustrate possible presentations rather than define a detailed parameter contract.
 
 Open the PNG images directly; no application, local server or browser tooling is required. Each numbered board also has an editable SVG source beside it. These are presentation assets, not a proposed UI implementation stack.
 
@@ -12,12 +12,12 @@ Open the PNG images directly; no application, local server or browser tooling is
 
 1. Start with **04–07**: richer CPU, memory, network and storage inspection, organized around resource navigation, trends, current readings and facts. Board **17** adds logical-processor history, narrow detail reflow and offline inspection.
 2. Review **15–16**: simultaneous monitoring, independent compact pin and inspection, then a multi-drive overview with comparable device charts.
-3. Compare **01–02** and **13** for footprint. Balanced, Minimal and Capsules are three adopted styles with horizontal/vertical arrangements, not six separate modes. Base sizes are adopted targets; actual content and text scaling can increase the usable minimum.
+3. Compare **01–02** and **13** for footprint. Balanced, Minimal and Capsules are three visual styles with horizontal/vertical arrangements, not six separate modes. Illustrated sizes help compare footprint; actual content and text scaling determine a usable minimum.
 4. Inspect **14** for consistent system-following light/dark appearance and optional background-only alpha; **09** summarizes the revised controls. **03, 08, 10–12** retain placement, visibility and quality scenarios.
 
-Round two contains **17 numbered PNG boards, 17 editable SVG sources and one PNG contact sheet**. Numbered boards are 1600 × 1000; board 13 explicitly labels its desktop and component presentation scales. Other large detail illustrations are not specifications of native pixel dimensions.
+The gallery contains **17 numbered PNG boards, 17 editable SVG sources and one PNG contact sheet**. Numbered boards are 1600 × 1000; board 13 explicitly labels its desktop and component presentation scales. Other large detail illustrations are not specifications of native pixel dimensions.
 
-The small-panel sparklines are illustrative shape studies, not synchronized miniature copies of the detailed sample histories. Every figure is sample data. Windows 10 21H2 build 19044+ x64 is the product target, not the current implementation claim: the foundation still requires Windows 11 build 22000+. Native focus, DPI, text scale, fullscreen compatibility, optional materials and performance require implementation evidence.
+The small-panel sparklines are illustrative shape studies, not synchronized miniature copies of the detailed sample histories. Every figure is sample data. The Windows 10+ design target is distinct from implemented compatibility; the project README owns actual platform requirements. Native focus, DPI, text scale, fullscreen compatibility, optional materials and performance require implementation evidence.
 
 ## Image Catalog
 
@@ -39,7 +39,7 @@ The small-panel sparklines are illustrative shape studies, not synchronized mini
 | [14 — Theme and transparency](14-theme-and-transparency.png) | Are appearance and foreground readability consistent? | [Compatibility](../06-settings.md#appearance-and-compatibility) |
 | [15 — Monitor, pin, inspect](15-monitor-pin-inspect.png) | Are the three resource choices independent? | [Resource choices](../04-observations-and-history.md#monitor-display-and-inspect-are-separate-choices) |
 | [16 — Multi-drive overview](16-multi-drive-overview.png) | Can all drives be reviewed without a larger panel? | [Storage details](../05-charts-and-details.md#storage-detail-journey) |
-| [17 — Detail states and reflow](17-detail-states-and-reflow.png) | Does depth survive constrained space and missing data? | [Review scenarios](../07-user-journeys.md#second-round-review-scenarios) |
+| [17 — Detail states and reflow](17-detail-states-and-reflow.png) | Does depth survive constrained space and missing data? | [Resource and layout scenarios](../07-user-journeys.md#resource-and-layout-scenarios) |
 
 ## 01 — Horizontal Directions
 
@@ -75,7 +75,7 @@ The small-panel sparklines are illustrative shape studies, not synchronized mini
 
 ## 09 — Placement Settings
 
-![Adopted settings organization](09-settings-placement.png)
+![Illustrative settings organization](09-settings-placement.png)
 
 ## 10 — Fullscreen Retreat
 
@@ -111,8 +111,8 @@ The small-panel sparklines are illustrative shape studies, not synchronized mini
 
 ## Reference Boundary
 
-The organization is informed by Microsoft's historical Task Manager Performance explanation, **Windows 8 Task Manager In-Depth** (June 6, 2013). It is a historical information-hierarchy reference, not evidence of the latest Windows 11 Task Manager UI. All boards are independently drawn; no third-party artwork or source code is included. Source: `https://blogs.windows.com/windowsexperience/2013/06/06/windows-8-task-manager-in-depth/`.
+The organization is informed by Microsoft's historical Task Manager Performance explanation, **Windows 8 Task Manager In-Depth**. It is a historical information-hierarchy reference, not evidence of the latest Windows 11 Task Manager UI. All boards are independently drawn; no third-party artwork or source code is included. Source: `https://blogs.windows.com/windowsexperience/2013/06/06/windows-8-task-manager-in-depth/`.
 
-Material considerations were checked against Microsoft's **Acrylic** guidance: `https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic`. The adopted design uses plain alpha backgrounds at 80%–100%, default 100%, with opaque fallbacks; Acrylic/Mica and blur are excluded. The board is not an acrylic implementation or evidence of native support.
+Material considerations were checked against Microsoft's **Acrylic** guidance: `https://learn.microsoft.com/en-us/windows/apps/design/style/acrylic`. The design uses optional plain background alpha with opaque fallbacks; Acrylic/Mica and blur are excluded. Numeric values in the board are illustrative. The board is not an acrylic implementation or evidence of native support.
 
 [Back to design catalog](../README.md)

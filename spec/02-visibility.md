@@ -30,9 +30,9 @@ flowchart TD
 
 Fullscreen classification uses relevant application state, visible display coverage and display association together. A single maximized flag or size comparison is not an adequate product definition. Ordinary maximized windows remain ordinary windows even when they occupy most of a monitor.
 
-Desktop-context changes should prompt reevaluation; window movement and activation transitions should settle without visible hide/show oscillation. A small amount of internal transition stabilization may be necessary, but it is not the removed user-facing delayed-collapse feature. The implementation must meet the 500 ms settled-context response and no-oscillation acceptance target in chapter 08. Internal scheduling is not a user-facing timer or an open product decision.
+Desktop-context changes should prompt reevaluation; window movement and activation transitions should settle without visible hide/show oscillation. A small amount of internal transition stabilization may be necessary, but it is not the removed user-facing delayed-collapse feature. The policy should respond promptly to settled desktop context without oscillation. Internal scheduling is separate from user-facing visibility behavior.
 
-The [adopted acceptance matrix](08-design-baseline.md#compatibility-and-evidence-gates) names Edge, VLC, LibreOffice Impress, SuperTuxKart and a controlled exclusive-fullscreen test application, including fullscreen on a non-panel display. This document does not claim a universal fullscreen detector. Disabling retreat means keeping ordinary floating-window behavior, not a guarantee of appearing above exclusive-fullscreen content.
+Borderless and exclusive-fullscreen applications, video players, presentations and fullscreen content on a non-panel display represent distinct desktop situations. This document does not claim a universal fullscreen detector. Disabling retreat means keeping ordinary floating-window behavior, not a guarantee of appearing above exclusive-fullscreen content.
 
 ```mermaid
 flowchart TD

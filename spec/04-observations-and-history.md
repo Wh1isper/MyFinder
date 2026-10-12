@@ -30,7 +30,7 @@ flowchart TB
 
 ## Monitor, Display and Inspect Are Separate Choices
 
-Several drives can be monitored concurrently. The **monitored set** determines collection; the **compact selection** determines which resource and metric occupy a fixed panel slot; the **inspection selection** determines the open detail view. A comparison selection contains at most three monitored resources. Changing inspection or comparison never stops collection for the others, resets their histories, changes the compact pin or grows the panel.
+Several drives can be monitored concurrently. The **monitored set** determines collection; the **compact selection** determines which resource and metric occupy a fixed panel slot; the **inspection selection** determines the open detail view. A comparison selection contains a small, explicitly chosen subset of monitored resources. Changing inspection or comparison never stops collection for the others, resets their histories, changes the compact pin or grows the panel.
 
 The default storage presentation pins one volume and one capacity metric to the compact storage slot. Other choices such as a named device's activity are explicit alternatives, not rotating readings. Clicking the slot opens that resource; subsequent navigation inside details remains independent. The overview lists all monitored resources, including unavailable ones, with their own quality and last-observed time.
 
@@ -77,7 +77,7 @@ flowchart TD
 
 ## Recent History Lifecycle
 
-**Adopted strategy:** shared, bounded, in-memory recent history for the current application session. Dynamic sampling defaults to one second, capacity refresh to ten seconds and slow facts to sixty seconds. Retain up to one hour, subject to the 64 MiB observation-payload budget. [Chapter 08](08-design-baseline.md#observation-history-and-presentation) fixes selectable cadences, retention ranges, staleness rules and units. These are acceptance targets, not existing performance measurements.
+Recent history is shared, bounded and kept in memory for the current application session. Dynamic activity benefits from a more responsive cadence than slow-changing capacity and hardware facts. Retention balances useful recent context against memory cost; shortened coverage is explicit when limits require expiration. Sampling cadence, retention and display refresh remain distinct choices rather than one global speed control.
 
 Observation is independent of drawing. Hiding the panel or closing details keeps collecting recent history while the application is running, so the next inspection has context. Sleeping or unavailable sources create real gaps; resuming does not backfill measurements that were never made. Exit stops collection. Cross-restart observation retention is excluded initially, avoiding a database and disk-write policy until a durable-history need is confirmed.
 

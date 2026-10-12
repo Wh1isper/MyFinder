@@ -26,7 +26,7 @@ flowchart TB
 
 Panel size is a logical-size preference subject to readable content and current text scaling, not a request to occupy a percentage of the desktop. The minimum varies with orientation, style and enabled content. Increasing the monitored resource set must not change this footprint. A smaller window removes optional decoration before essential labels; it never introduces edge collapse.
 
-The detail surface may resize independently. On constrained usable bounds, switch to a resource chooser and a vertically scrollable fact area. Keep the close action and essential navigation reachable; move or constrain the window before clipping content behind the taskbar. The adopted base sizes and minimum-content rules are in [chapter 08](08-design-baseline.md#sizing-contract). Native fit and high-text-scale behavior remain validation work, not conclusions from static boards.
+The detail surface may resize independently. On constrained usable bounds, switch to a resource chooser and a vertically scrollable fact area. Keep the close action and essential navigation reachable; move or constrain the window before clipping content behind the taskbar. [Readable surface principles](08-design-baseline.md#readable-adaptable-surfaces) govern the usable minimum. Native fit and high-text-scale behavior cannot be inferred from static boards.
 
 ## Moving Between Displays
 

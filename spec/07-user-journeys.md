@@ -1,12 +1,12 @@
 # 07 — End-to-End Journeys and Completion Boundaries
 
-[Catalog](README.md) · [Next: adopted design baseline](08-design-baseline.md)
+[Catalog](README.md) · [Next: design principles and boundaries](08-design-baseline.md)
 
 ## Daily Observation
 
 The primary path connects all earlier responsibilities: restore intent, establish current desktop context, collect observations, present the compact view, and inspect a selected resource. This is an end-to-end behavior description, not an implementation sequence or a claim of completed features.
 
-A normal user should not need to understand which component collects a metric or places a window. They should know where the panel is, why it may be hidden, what a value means, and how to inspect it. Those are the acceptance boundaries for the adopted architecture.
+A normal user should not need to understand which component collects a metric or places a window. They should know where the panel is, why it may be hidden, what a value means, and how to inspect it. Those are the acceptance boundaries for the architecture.
 
 ```mermaid
 flowchart TD
@@ -38,7 +38,7 @@ Use scenarios that exercise competing intentions and desktop changes, not just i
 | History and charts | Partial coverage, retention boundaries, consistent units, capacity composition and gaps under reduced chart detail. |
 | Lifecycle and cost | Sleep/resume, shell restart, clean exit, responsive interaction, bounded history and no drawing for closed details. |
 
-These are required evidence categories. [Chapter 08](08-design-baseline.md#compatibility-and-evidence-gates) fixes the desktop/application matrix and performance budgets. Record exact tested versions, hardware and results when executing those gates; the design does not substitute for them.
+These scenarios define observable quality boundaries rather than a version-specific test matrix. Concrete environments, workload sizes and measurement budgets belong to implementation planning. A successful build does not establish desktop or measurement correctness.
 
 ```mermaid
 flowchart TD
@@ -56,9 +56,9 @@ flowchart TD
     Quit --> Stopped["Close all surfaces and stop observation; no tray entry remains"]
 ```
 
-## Second-Round Review Scenarios
+## Resource and Layout Scenarios
 
-These acceptance scenarios are adopted requirements; the static images do not prove them implemented.
+These scenarios connect resource semantics with presentation. Static images illustrate the interactions but do not establish runtime correctness.
 
 | Scenario | Expected result |
 | --- | --- |
@@ -71,7 +71,7 @@ These acceptance scenarios are adopted requirements; the static images do not pr
 | Compare memory headline, composition and facts | In-use + available equals usable total; reserved memory explains the installed difference. Cache/compression are not counted twice. |
 | Change Windows theme or disable transparency | Panel, details and settings remain consistent and readable. Foreground data does not fade with the background. |
 | Use a small desktop at increased text scale | Essential labels and close/navigation controls remain usable; no uniform shrink-to-fit or edge-hide workaround. |
-| Validate the Windows 10 product target | Target Windows 10 21H2 build 19044+ x64, using chapter 08's test matrix. Validate packaging, runtime and solid fallback before changing compatibility claims; the current Windows 11 foundation is not evidence. |
+| Validate the Windows 10 product target | Compatibility includes packaging, runtime, desktop interaction and solid visual fallbacks. A framework platform range alone does not establish application compatibility. |
 
 ## Complete Capability Deliveries
 
@@ -97,7 +97,7 @@ flowchart TB
 
 Both source-built unpackaged use and explicitly trusted self-signed installation remain supported product paths. Their monitoring behavior is the same. Building a package, trusting a certificate and installing it are separate user decisions; no trust operation is hidden in routine application startup. Detailed commands belong in the root README rather than in the architecture specification.
 
-Public distribution is not the current objective. The existing build/test/release foundation is not evidence that these adopted monitoring and desktop behaviors already work.
+Public distribution is not the current objective. The existing build/test/release foundation is not evidence that these monitoring and desktop behaviors already work.
 
 ```mermaid
 flowchart TD
