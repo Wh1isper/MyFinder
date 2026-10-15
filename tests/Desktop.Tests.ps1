@@ -174,7 +174,8 @@ Describe 'Published monitoring application' {
         $oldDpi = [MyFinderDesktopTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
         $profile = Join-Path $TestDrive 'alpha'
         New-Item $profile -ItemType Directory | Out-Null
-        '{"Version":1,"Retreat":false,"Theme":"Dark","BackgroundOpacity":0.5,"MetricOrder":[]}' | Set-Content "$profile/preferences.json" -Encoding UTF8
+        # Keep discovery from changing the panel's controls or opening Settings between the two captures.
+        '{"Version":1,"Retreat":false,"Theme":"Dark","BackgroundOpacity":0.5,"MetricOrder":[],"NetworkSelectionMade":true,"StorageSelectionMade":true}' | Set-Content "$profile/preferences.json" -Encoding UTF8
         $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
         $underlay = New-Object System.Windows.Forms.Form
         $images = @()
@@ -199,6 +200,15 @@ Describe 'Published monitoring application' {
                     return
                 }
                 $hit.ToInt64() | Should -Be $panel.Current.NativeWindowHandle -Because "panel=$([MyFinderDesktopTest]::Describe([IntPtr]$panel.Current.NativeWindowHandle)); underlay=$([MyFinderDesktopTest]::Describe($underlay.Handle)); hit=$([MyFinderDesktopTest]::Describe($hit)); context=$([MyFinderDesktopTest]::GetThreadDpiAwarenessContext()); old=$oldDpi"
+                $currentBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
+                $currentBounds.Left | Should -Be $nativeBounds.Left
+                $currentBounds.Top | Should -Be $nativeBounds.Top
+                $currentBounds.Right | Should -Be $nativeBounds.Right
+                $currentBounds.Bottom | Should -Be $nativeBounds.Bottom
+                foreach ($offset in @(@(8,8), @(($bounds.Width-9),8), @(8,($bounds.Height-9)), @(($bounds.Width-9),($bounds.Height-9)))) {
+                    $corner = New-Object MyFinderDesktopTest+Point([int]($bounds.X+$offset[0]), [int]($bounds.Y+$offset[1]))
+                    [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint($corner), 2).ToInt64() | Should -Be $panel.Current.NativeWindowHandle
+                }
                 $image = New-Object System.Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
                 $graphics = [System.Drawing.Graphics]::FromImage($image)
                 try { $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $image.Size) } finally { $graphics.Dispose() }
@@ -207,6 +217,9 @@ Describe 'Published monitoring application' {
             New-Item "$root/artifacts/validation/A" -ItemType Directory -Force | Out-Null
             $images[0].Save("$root/artifacts/validation/A/alpha-black.png")
             $images[1].Save("$root/artifacts/validation/A/alpha-white.png")
+            New-Item "$root/TestResults" -ItemType Directory -Force | Out-Null
+            $images[0].Save("$root/TestResults/alpha-black.png")
+            $images[1].Save("$root/TestResults/alpha-white.png")
             $backgroundDifference = [Math]::Abs($images[1].GetPixel([int]($bounds.Width/2), 3).R - $images[0].GetPixel([int]($bounds.Width/2), 3).R)
             $opaquePixels = 0
             for ($y=6; $y -lt $images[0].Height-6; $y++) {
