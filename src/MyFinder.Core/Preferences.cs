@@ -26,6 +26,7 @@ public sealed record Preferences
     public int RangeMinutes { get; init; } = 5;
     public CompositionStyle Composition { get; init; }
     public bool NetworkBits { get; init; }
+    public bool NetworkSelectionMade { get; init; }
     public bool StorageBinary { get; init; }
     public string PreferredDisplay { get; init; } = "";
     public Dictionary<string, Placement> Placements { get; init; } = [];

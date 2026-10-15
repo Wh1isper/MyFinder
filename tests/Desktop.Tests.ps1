@@ -64,6 +64,45 @@ public static class MyFinderDesktopTest {
 }
 
 Describe 'Published monitoring application' {
+    It 'shows live network trends and keeps the compact pin while inspecting another adapter' {
+        $adapters = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' -and $_.Id -match '^\{?[0-9a-fA-F-]{36}\}?$' } | Select-Object -First 2)
+        if ($adapters.Count -lt 2) { Set-ItResult -Skipped -Because 'Two active native adapters are required for real independent inspection.'; return }
+        $ids = @($adapters | ForEach-Object { 'network:' + ([Guid]$_.Id).ToString('D') })
+        $profile = Join-Path $TestDrive 'network-ui'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; MetricOrder=@('cpu','network'); Monitored=@('cpu','memory')+$ids; Pins=@{network=$ids[0]} } | ConvertTo-Json -Depth 5 | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            $panel = Wait-AppWindow $process MyFinder
+            Start-Sleep -Seconds 2
+            $bounds = $panel.Current.BoundingRectangle
+            Invoke-AppButton $panel Inspect_network
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            ($texts -join "`n") | Should -Match 'Receive.*Send'
+            ($texts -join "`n") | Should -Match 'Receive coverage'
+            ($texts -join "`n") | Should -Not -Match 'Current unicast addresses:|Physical address:'
+            Invoke-AppButton $details DetailSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Invoke-AppButton $settings RefreshResources
+            Invoke-AppButton $settings ('InspectResource_' + $ids[1])
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            ($texts -join "`n") | Should -Match ([regex]::Escape($ids[1]))
+            $panel.Current.BoundingRectangle.Width | Should -Be $bounds.Width
+            $panel.Current.BoundingRectangle.Height | Should -Be $bounds.Height
+            Invoke-AppButton $details DetailSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Invoke-AppButton $settings HidePanel
+            Invoke-AppButton $settings ShowPanel
+            Invoke-AppButton $settings ExitMyFinder
+            $process.WaitForExit(10000) | Should -BeTrue
+            $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
+            $saved.Pins.network | Should -Be $ids[0]
+            $saved.Monitored | Should -Contain $ids[1]
+            Test-Path "$profile/last-error.txt" | Should -BeFalse
+        } finally { Stop-TestApp $process }
+    }
     It 'uses real controls for hide/show, detail dismissal, continued collection and explicit exit' {
         $profile = Join-Path $TestDrive 'desktop'
         New-Item $profile -ItemType Directory | Out-Null
@@ -107,7 +146,7 @@ Describe 'Published monitoring application' {
             foreach ($orientation in @('Horizontal', 'Vertical')) {
                 $profile = Join-Path $TestDrive "$style-$orientation"
                 New-Item $profile -ItemType Directory | Out-Null
-                @{ Version=1; Style=$style; Orientation=$orientation; Theme='Dark'; Scale=1.4; Retreat=$false } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+                @{ Version=1; Style=$style; Orientation=$orientation; Theme='Dark'; Scale=1.4; Retreat=$false; NetworkSelectionMade=$true } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
                 $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
                 try {
                     $settings = Wait-AppWindow $process 'MyFinder - Settings'
@@ -135,7 +174,8 @@ Describe 'Published monitoring application' {
         $oldDpi = [MyFinderDesktopTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
         $profile = Join-Path $TestDrive 'alpha'
         New-Item $profile -ItemType Directory | Out-Null
-        '{"Version":1,"Retreat":false,"Theme":"Dark","BackgroundOpacity":0.5,"MetricOrder":[]}' | Set-Content "$profile/preferences.json" -Encoding UTF8
+        # Keep discovery from changing the panel's controls or opening Settings between the two captures.
+        '{"Version":1,"Retreat":false,"Theme":"Dark","BackgroundOpacity":0.5,"MetricOrder":[],"NetworkSelectionMade":true,"StorageSelectionMade":true}' | Set-Content "$profile/preferences.json" -Encoding UTF8
         $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
         $underlay = New-Object System.Windows.Forms.Form
         $images = @()
@@ -143,14 +183,17 @@ Describe 'Published monitoring application' {
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
             $panel = Wait-AppWindow $process MyFinder
             Start-Sleep -Milliseconds 500
+            $appearance = ($settings.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }) -join ' '
+            Invoke-AppButton $settings CloseSettings
             $nativeBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
             $bounds = New-Object System.Drawing.Rectangle($nativeBounds.Left, $nativeBounds.Top, ($nativeBounds.Right-$nativeBounds.Left), ($nativeBounds.Bottom-$nativeBounds.Top))
             $underlay.FormBorderStyle = 'None'; $underlay.ShowInTaskbar = $false; $underlay.TopMost = $true
             $underlay.StartPosition = 'Manual'
-            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]$bounds.Width, [int]$bounds.Height)
+            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]($bounds.Width+12), [int]($bounds.Height+12))
             $underlay.Show()
             foreach ($color in @([System.Drawing.Color]::Black, [System.Drawing.Color]::White)) {
                 $underlay.BackColor = $color; $underlay.Refresh(); [System.Windows.Forms.Application]::DoEvents()
+                [MyFinderDesktopTest]::SetWindowPos($underlay.Handle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null
                 [MyFinderDesktopTest]::SetWindowPos([IntPtr]$panel.Current.NativeWindowHandle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null
                 Start-Sleep -Milliseconds 500
                 $point = New-Object MyFinderDesktopTest+Point([int]($bounds.X+$bounds.Width/2), [int]($bounds.Y+3))
@@ -160,6 +203,24 @@ Describe 'Published monitoring application' {
                     return
                 }
                 $hit.ToInt64() | Should -Be $panel.Current.NativeWindowHandle -Because "panel=$([MyFinderDesktopTest]::Describe([IntPtr]$panel.Current.NativeWindowHandle)); underlay=$([MyFinderDesktopTest]::Describe($underlay.Handle)); hit=$([MyFinderDesktopTest]::Describe($hit)); context=$([MyFinderDesktopTest]::GetThreadDpiAwarenessContext()); old=$oldDpi"
+                # Check an exposed owned-underlay pixel before attributing the panel's alpha response.
+                $underlayPoint = New-Object MyFinderDesktopTest+Point([int]($bounds.Right+4), [int]($bounds.Y+4))
+                [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint($underlayPoint), 2).ToInt64() | Should -Be $underlay.Handle.ToInt64()
+                $probe = New-Object System.Drawing.Bitmap(1,1)
+                $probeGraphics = [System.Drawing.Graphics]::FromImage($probe)
+                try {
+                    $probeGraphics.CopyFromScreen($underlayPoint.X, $underlayPoint.Y, 0, 0, $probe.Size)
+                    $probe.GetPixel(0,0).ToArgb() | Should -Be $color.ToArgb() -Because 'the owned underlay must really display the requested color'
+                } finally { $probeGraphics.Dispose(); $probe.Dispose() }
+                $currentBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
+                $currentBounds.Left | Should -Be $nativeBounds.Left
+                $currentBounds.Top | Should -Be $nativeBounds.Top
+                $currentBounds.Right | Should -Be $nativeBounds.Right
+                $currentBounds.Bottom | Should -Be $nativeBounds.Bottom
+                foreach ($offset in @(@(8,8), @(($bounds.Width-9),8), @(8,($bounds.Height-9)), @(($bounds.Width-9),($bounds.Height-9)))) {
+                    $corner = New-Object MyFinderDesktopTest+Point([int]($bounds.X+$offset[0]), [int]($bounds.Y+$offset[1]))
+                    [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint($corner), 2).ToInt64() | Should -Be $panel.Current.NativeWindowHandle
+                }
                 $image = New-Object System.Drawing.Bitmap([int]$bounds.Width, [int]$bounds.Height)
                 $graphics = [System.Drawing.Graphics]::FromImage($image)
                 try { $graphics.CopyFromScreen([int]$bounds.X, [int]$bounds.Y, 0, 0, $image.Size) } finally { $graphics.Dispose() }
@@ -168,6 +229,9 @@ Describe 'Published monitoring application' {
             New-Item "$root/artifacts/validation/A" -ItemType Directory -Force | Out-Null
             $images[0].Save("$root/artifacts/validation/A/alpha-black.png")
             $images[1].Save("$root/artifacts/validation/A/alpha-white.png")
+            New-Item "$root/TestResults" -ItemType Directory -Force | Out-Null
+            $images[0].Save("$root/TestResults/alpha-black.png")
+            $images[1].Save("$root/TestResults/alpha-white.png")
             $backgroundDifference = [Math]::Abs($images[1].GetPixel([int]($bounds.Width/2), 3).R - $images[0].GetPixel([int]($bounds.Width/2), 3).R)
             $opaquePixels = 0
             for ($y=6; $y -lt $images[0].Height-6; $y++) {
@@ -176,12 +240,13 @@ Describe 'Published monitoring application' {
                     if ($a.R -gt 180 -and $a.G -gt 180 -and $a.B -gt 180 -and [Math]::Abs($a.R-$b.R) -lt 5) { $opaquePixels++ }
                 }
             }
-            $status = $settings.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
-            if (($status -join ' ') -match 'Solid background:') {
+            if ($appearance -match 'Solid background:') {
                 $backgroundDifference | Should -BeLessThan 8
             } else { $backgroundDifference | Should -BeGreaterThan 60 }
             $opaquePixels | Should -BeGreaterThan 20
             $underlay.Close()
+            Invoke-AppButton $panel OpenSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
             Invoke-AppButton $settings ExitMyFinder
             $process.WaitForExit(10000) | Should -BeTrue
         } finally {

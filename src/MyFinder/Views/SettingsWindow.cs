@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using MyFinder.Core;
+using MyFinder.Core.Monitoring;
 using Windows.System;
 
 namespace MyFinder.Views;
@@ -61,8 +62,13 @@ internal sealed class SettingsWindow : Window
                 var monitored = _owner.Preferences.Monitored.ToHashSet(); if (value) monitored.Add(id); else monitored.Remove(id);
                 _owner.Update(_owner.Preferences with { Monitored = monitored.ToArray() });
             });
+        form.Children.Add(Ui.Text("Network adapters", 20));
+        form.Children.Add(Ui.Text("Monitor, compact pin and detail inspection are independent. Choose an adapter below when first-run discovery is ambiguous. Addresses stay hidden unless temporarily revealed in details."));
+        Toggle(form, "Network rates in bits/s (otherwise bytes/s)", preferences.NetworkBits, value => _owner.Update(_owner.Preferences with { NetworkBits = value }));
+        ResourceChoices(form, ResourceKind.Network, "network");
+        form.Children.Add(Ui.Button("Refresh available resources", Build, "RefreshResources"));
         form.Children.Add(Ui.Text("Compact metrics and order", 20));
-        foreach (string id in new[] { "cpu", "memory" })
+        foreach (string id in new[] { "cpu", "memory", "network" })
         {
             Toggle(form, "Show " + id + " on the compact panel", preferences.MetricOrder.Contains(id), value =>
             {
@@ -82,7 +88,37 @@ internal sealed class SettingsWindow : Window
         var stats = _owner.Session.History.Statistics;
         _status.Text = $"Panel intent: {(_owner.Preferences.Shown ? "shown" : "hidden")}" + (_owner.Retreated ? " · temporarily retreated for fullscreen" : "") +
             $"\n{_owner.AppearanceStatus}\n{stats.Samples:N0} retained observations · {stats.EstimatedBytes / 1048576d:F1} MiB estimated history storage" +
+            (_owner.Preferences.Pins.ContainsKey("network") ? "" : "\nNetwork: choose a monitored adapter and compact pin below.") +
             (_owner.Warning is null ? "" : "\n" + _owner.Warning);
+    }
+    private void ResourceChoices(StackPanel form, ResourceKind kind, string pin)
+    {
+        var readings = _owner.Readings.Where(x => x.Resource.Kind == kind).OrderBy(x => x.Resource.Name).ToArray();
+        if (readings.Length == 0) form.Children.Add(Ui.Text("No resources discovered yet. Refresh to retry; other monitoring continues."));
+        foreach (var reading in readings)
+        {
+            string id = reading.Resource.Id;
+            string label = reading.Resource.Name + " · " + reading.Resource.Facts.GetValueOrDefault("Category", kind.ToString());
+            Toggle(form, "Monitor " + label, _owner.Preferences.Monitored.Contains(id), value =>
+            {
+                var monitored = _owner.Preferences.Monitored.ToHashSet(); if (value) monitored.Add(id); else monitored.Remove(id);
+                _owner.Update(_owner.Preferences with { Monitored = monitored.ToArray(), NetworkSelectionMade = true });
+            });
+            form.Children.Add(Ui.Button("Inspect " + label, () => { Dismiss(); _owner.Inspect(id); }, "InspectResource_" + id));
+        }
+        var choice = new ComboBox { Header = "Compact " + pin + " pin (does not enable monitoring)", HorizontalAlignment = HorizontalAlignment.Stretch };
+        choice.Items.Add(new ComboBoxItem { Content = "No pin", Tag = "" });
+        foreach (var reading in readings) choice.Items.Add(new ComboBoxItem { Content = reading.Resource.Name, Tag = reading.Resource.Id });
+        string selected = _owner.Preferences.Pins.GetValueOrDefault(pin, "");
+        choice.SelectedItem = choice.Items.OfType<ComboBoxItem>().FirstOrDefault(x => (string)x.Tag == selected);
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (choice.SelectedItem is not ComboBoxItem item) return;
+            var pins = new Dictionary<string, string>(_owner.Preferences.Pins); pins.Remove(pin);
+            if ((string)item.Tag != "") pins[pin] = (string)item.Tag;
+            _owner.Update(_owner.Preferences with { Pins = pins, NetworkSelectionMade = true });
+        };
+        Ui.Name(choice, "Compact " + pin + " pin"); form.Children.Add(choice);
     }
     private static void Choice<T>(StackPanel form, string label, IEnumerable<T> values, T selected, Action<T> update)
     {

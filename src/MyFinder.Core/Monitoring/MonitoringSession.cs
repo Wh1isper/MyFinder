@@ -8,15 +8,20 @@ public sealed class MonitoringSession : IAsyncDisposable
     private readonly Dictionary<string, bool> _wasMonitored = [];
     private readonly Dictionary<string, long> _selectionSegments = [];
     private Preferences _preferences;
-    private readonly Task _system;
+    private readonly Task _system, _network;
+    private readonly NetworkCollector _networkCollector = new();
+    public bool NetworkReady { get; private set; }
     public HistoryStore History { get; } = new();
     public MonitoringSession(Preferences preferences)
     {
         _preferences = preferences;
+        _networkCollector.Configure(preferences);
         _system = Task.Run(SystemLoop);
+        _network = Task.Run(NetworkLoop);
     }
     public void Configure(Preferences preferences)
     {
+        _networkCollector.Configure(preferences);
         Volatile.Write(ref _preferences, preferences);
         History.Prune(ObservationClock.Elapsed, preferences.RetentionMinutes * 60);
     }
@@ -50,6 +55,26 @@ public sealed class MonitoringSession : IAsyncDisposable
             }
         }
     }
+    private async Task NetworkLoop()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                var readings = _networkCollector.Collect();
+                lock (_gate)
+                {
+                    var ids = readings.Select(x => x.Resource.Id).ToHashSet();
+                    foreach (string id in _latest.Keys.Where(x => x.StartsWith("network:") && !ids.Contains(x)).ToArray())
+                    { _latest.Remove(id); _wasMonitored.Remove(id); _selectionSegments.Remove(id); }
+                    Publish(readings);
+                    NetworkReady = true;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(Volatile.Read(ref _preferences).IntervalSeconds), _stop.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
     private async Task SystemLoop()
     {
         using var collector = new SystemCollector();
@@ -68,7 +93,7 @@ public sealed class MonitoringSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
-        await _system.ConfigureAwait(false);
+        await Task.WhenAll(_system, _network).ConfigureAwait(false);
         _stop.Dispose();
     }
 }

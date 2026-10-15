@@ -13,10 +13,71 @@ object result = args.FirstOrDefault() switch
     "system" => await NativeSystem(),
     "session" => await SessionScenario(),
     "expiry" => await ExpiryScenario(),
+    "network-policy" => NetworkPolicy(),
+    "network" => await NativeNetwork(),
     _ => throw new ArgumentException("Specify a known scenario.")
 };
 Console.WriteLine(JsonSerializer.Serialize(result));
 
+static object NetworkPolicy()
+{
+    var a = new AdapterSnapshot(Guid.NewGuid(), 1, "Adapter", "Fixture", 6, true, 1, 1000000, 1000000, 100, 200);
+    var b = a with { Id = Guid.NewGuid(), Luid = 2, Hardware = false };
+    var preferences = new Preferences { Monitored = [a.ResourceId, b.ResourceId], Pins = new() { ["network"] = a.ResourceId } };
+    var collector = new NetworkCollector(); collector.Configure(preferences);
+    var first = collector.Observe([a, b], 0, DateTimeOffset.UnixEpoch);
+    var second = collector.Observe([a with { Received = 1100, Sent = 2200, Name = "Renamed" }, b], 1, DateTimeOffset.UnixEpoch.AddSeconds(1));
+    collector.Configure(preferences with { Monitored = [b.ResourceId] });
+    collector.Configure(preferences); // Even a stop/re-enable between samples must break the baseline.
+    var resumed = collector.Observe([a with { Received = 999999 }, b], 2, DateTimeOffset.UnixEpoch.AddSeconds(2));
+    var disconnected = collector.Observe([a with { Status = 2 }, b], 3, DateTimeOffset.UnixEpoch.AddSeconds(3));
+    var replaced = collector.Observe([b with { Name = a.Name }], 4, DateTimeOffset.UnixEpoch.AddSeconds(4));
+    var failed = collector.Observe([], 5, DateTimeOffset.UnixEpoch.AddSeconds(5), "Fixture failure");
+    var empty = new NetworkCollector(); empty.Configure(new Preferences { Monitored = [] });
+    for (int i = 0; i < 600; i++) empty.Observe([a with { Id = Guid.NewGuid() }], i, DateTimeOffset.UnixEpoch.AddSeconds(i));
+    int retained = empty.Observe([], 2000, DateTimeOffset.UnixEpoch.AddSeconds(2000)).Length;
+    var selected = NetworkCollector.InitialSelection(new(), first);
+    return new { First = first[0].Observation.Get("Receive").Quality.ToString(), Rate = second[0].Observation.Get("Receive").Value,
+        RenamedIdentity = second[0].Resource.Id == a.ResourceId, OtherContinued = second[1].Observation.Get("Receive").Value == 0,
+        Resume = resumed[0].Observation.Get("Receive").Quality.ToString(), Total = resumed[0].Observation.Get("Observed received").Value,
+        Disconnected = disconnected[0].Observation.Get("Receive").Quality.ToString(), MissingIdentity = replaced[0].Resource.Id == a.ResourceId && replaced[0].Observation.Get("Receive").Quality == Quality.Disconnected,
+        Failure = failed[0].Observation.Get("Receive").Quality.ToString(), Retained = retained,
+        Pin = selected?.Pins.GetValueOrDefault("network") == a.ResourceId,
+        Ambiguous = NetworkCollector.InitialSelection(new(), [first[0], first[0] with { Resource = a.Resource with { Id = "other" } }]) is null,
+        DoesNotRepin = NetworkCollector.InitialSelection(preferences with { NetworkSelectionMade = true }, first) is null,
+        ByteRate = ValueFormat.Metric(new(125000, Unit.BytesPerSecond), new()), BitRate = ValueFormat.Metric(new(125000, Unit.BytesPerSecond), new() { NetworkBits = true }) };
+}
+static async Task<object> NativeNetwork()
+{
+    var adapters = NetworkInterfaces.Read();
+    var collector = new NetworkCollector(); collector.Configure(new Preferences { Monitored = adapters.Select(x => x.ResourceId).ToArray() });
+    collector.Collect();
+    var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+    listener.Start();
+    long received = 0;
+    try
+    {
+        using var sender = new System.Net.Sockets.TcpClient();
+        var accept = listener.AcceptTcpClientAsync();
+        await sender.ConnectAsync((System.Net.IPEndPoint)listener.LocalEndpoint);
+        using var receiver = await accept;
+        var read = Task.Run(async () => { byte[] buffer = new byte[65536]; int length; while ((length = await receiver.GetStream().ReadAsync(buffer)) > 0) received += length; });
+        byte[] payload = new byte[65536];
+        for (int i = 0; i < 256; i++) await sender.GetStream().WriteAsync(payload);
+        sender.Client.Shutdown(System.Net.Sockets.SocketShutdown.Send);
+        await read.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+    finally { listener.Stop(); }
+    await Task.Delay(1200);
+    var readings = collector.Collect();
+    var loopback = readings.Where(x => x.Resource.Facts.GetValueOrDefault("Category") == "Loopback").ToArray();
+    return new { Count = adapters.Length, Unique = adapters.Select(x => x.Id).Distinct().Count() == adapters.Length,
+        ManagedIdentities = adapters.Count(x => System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().Any(n => Guid.TryParse(n.Id, out var id) && id == x.Id)),
+        ValidRates = readings.Where(x => x.Observation.Get("Receive").Quality == Quality.Fresh).All(x => x.Observation.Get("Receive").Value >= 0 && x.Observation.Get("Send").Value >= 0),
+        Fresh = readings.Count(x => x.Observation.Get("Receive").Quality == Quality.Fresh), PayloadReceived = received,
+        LoopbackReceived = loopback.Sum(x => x.Observation.Get("Observed received").Value ?? 0), LoopbackSent = loopback.Sum(x => x.Observation.Get("Observed sent").Value ?? 0),
+        Adapters = readings.Select(x => new { x.Resource.Id, x.Resource.Name, x.Resource.Facts, Receive = x.Observation.Get("Receive"), Send = x.Observation.Get("Send") }) };
+}
 static object Policy()
 {
     var primary = new Display("primary", "Primary", new(0, 0, 1920, 1080), new(0, 0, 1920, 1040), true);
