@@ -3,17 +3,5 @@
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
   Title="MyFinder">
-  <Grid Padding="32" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <StackPanel Spacing="16" VerticalAlignment="Center">
-      <TextBlock Text="MyFinder" Style="{ThemeResource TitleTextBlockStyle}" />
-      <TextBlock Text="A Windows monitoring bar, built with WinUI 3." TextWrapping="Wrap" />
-      <InfoBar
-        IsOpen="True"
-        IsClosable="False"
-        Severity="Informational"
-        Title="Development foundation"
-        Message="Build and installation tooling are available. Monitoring, top-bar behavior, and multi-display settings are not implemented yet." />
-      <TextBlock Text="This window does not modify startup, display work areas, or certificate trust." TextWrapping="Wrap" />
-    </StackPanel>
-  </Grid>
+  <Grid x:Name="Host" Background="Transparent" />
 </Window>
