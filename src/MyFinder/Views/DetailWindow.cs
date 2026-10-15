@@ -19,6 +19,11 @@ internal sealed class DetailWindow : Window
     private readonly TextBlock _heading = Ui.Text("", 24), _current = Ui.Text("", 18), _facts = Ui.Text(""), _quality = Ui.Text("");
     private readonly StackPanel _composition = Ui.Stack();
     private readonly TrendChart _chart = new();
+    private readonly TextBlock _addresses = Ui.Text("");
+    private readonly Button _reveal = Ui.Button("Reveal addresses for 30 seconds", () => { }, "RevealAddresses");
+    private readonly DispatcherTimer _privacy = new() { Interval = TimeSpan.FromSeconds(30) };
+    private Task<string>? _addressWork;
+    private int _revealGeneration;
     private string _selected = "cpu", _metricKey = "Utilization", _resourceSignature = "", _metricSignature = "";
     private int _rangeMinutes;
     private bool _updating;
@@ -46,6 +51,23 @@ internal sealed class DetailWindow : Window
         };
         content.Children.Add(controls); content.Children.Add(_quality); content.Children.Add(_current); content.Children.Add(_chart); content.Children.Add(_composition);
         content.Children.Add(Ui.Text("Resource facts and current observations", 18)); content.Children.Add(_facts);
+        content.Children.Add(_reveal); content.Children.Add(_addresses);
+        _reveal.Click += async (_, _) =>
+        {
+            if (_addresses.Text.Length > 0) { HideAddresses(); return; }
+            if (_addressWork is { IsCompleted: false }) return;
+            int generation = ++_revealGeneration; string id = _selected;
+            _addressWork = Task.Run(() =>
+            {
+                try { return NetworkInterfaces.RevealAddresses(id); }
+                catch (System.Net.NetworkInformation.NetworkInformationException) { return "Address query unavailable."; }
+            });
+            string text = await _addressWork;
+            if (!IsOpen || generation != _revealGeneration || id != _selected) return;
+            _addresses.Text = text; _reveal.Content = "Hide addresses"; _privacy.Start();
+            _addressWork = null;
+        };
+        _privacy.Tick += (_, _) => HideAddresses();
         content.Children.Add(Ui.Button("Settings", owner.ShowSettings, "DetailSettings"));
         content.Children.Add(Ui.Button("Close details", Dismiss, "CloseDetails"));
         _root.Children.Add(new ScrollViewer { Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }); Content = _root;
@@ -57,7 +79,7 @@ internal sealed class DetailWindow : Window
         _resource.SelectionChanged += (_, _) =>
         {
             if (_updating || _resource.SelectedItem is not ComboBoxItem item || item.Tag is not string id) return;
-            _selected = id; _metricKey = ""; _metricSignature = ""; _chart.ResetInspection(); Refresh();
+            HideAddresses(); _selected = id; _metricKey = ""; _metricSignature = ""; _chart.ResetInspection(); Refresh();
         };
         _metric.SelectionChanged += (_, _) => { if (!_updating && _metric.SelectedItem is string key) { _metricKey = key; _chart.ResetInspection(); Refresh(); } };
         _range.SelectionChanged += (_, _) => { if (!_updating && _range.SelectedItem is int minutes) { _rangeMinutes = minutes; _chart.ResetInspection(); Refresh(); } };
@@ -67,10 +89,12 @@ internal sealed class DetailWindow : Window
     }
     public void Open(string id)
     {
+        HideAddresses();
         _selected = id; _metricKey = ""; _metricSignature = ""; _rangeMinutes = _owner.Preferences.RangeMinutes; _chart.ResetInspection();
         IsOpen = true; _owner.PositionDetails(this); Refresh(); AppWindow.Show(); Activate();
     }
-    public void Dismiss() { IsOpen = false; AppWindow.Hide(); }
+    private void HideAddresses() { _revealGeneration++; _privacy.Stop(); _addresses.Text = ""; _reveal.Content = "Reveal addresses for 30 seconds"; if (_addressWork?.IsCompleted == true) _addressWork = null; }
+    public void Dismiss() { HideAddresses(); IsOpen = false; AppWindow.Hide(); }
     public void Refresh()
     {
         if (!IsOpen) return;
@@ -91,6 +115,8 @@ internal sealed class DetailWindow : Window
             var current = readings.FirstOrDefault(x => x.Resource.Id == _selected);
             if (current is null) { _heading.Text = _selected; _quality.Text = "Waiting for this resource. Its identity remains selected."; return; }
             _heading.Text = current.Resource.Name;
+            bool network = current.Resource.Kind == ResourceKind.Network;
+            _reveal.Visibility = network ? Visibility.Visible : Visibility.Collapsed;
             var keys = TrendMetrics(current);
             string metricSignature = _selected + string.Join(";", keys);
             if (_metricSignature != metricSignature)
@@ -99,15 +125,16 @@ internal sealed class DetailWindow : Window
                 if (!keys.Contains(_metricKey)) _metricKey = keys.FirstOrDefault() ?? "Utilization";
             }
             _metric.SelectedItem = _metricKey;
-            var metric = current.Observation.Get(_metricKey);
+            string[] series = _metricKey == "Traffic" ? ["Receive", "Send"] : [_metricKey];
+            var metric = current.Observation.Get(series[0]);
             _quality.Text = $"Current snapshot {current.Observation.Time:T} · {metric.Quality}" + (metric.Reason is null ? "" : $" — {metric.Reason}") +
                 (_owner.Session.History.BudgetLimited ? " · History shortened by the memory budget" : "");
-            _current.Text = $"{_metricKey}: {ValueFormat.Metric(metric, _owner.Preferences)}";
+            _current.Text = string.Join("   |   ", series.Select(key => $"{key}: {ValueFormat.Metric(current.Observation.Get(key), _owner.Preferences)}"));
             var samples = _owner.Session.History.Read(_selected, ObservationClock.Elapsed - _rangeMinutes * 60);
-            _chart.Update(samples, [_metricKey], _owner.Preferences, _rangeMinutes, maximum: current.Resource.Kind == ResourceKind.Memory
+            _chart.Update(samples, series, _owner.Preferences, _rangeMinutes, maximum: current.Resource.Kind == ResourceKind.Memory
                 ? current.Observation.Get(_metricKey == "Committed" ? "Commit limit" : "Total").Value : null);
             _facts.Text = string.Join("\n", current.Observation.Values.Where(x => !x.Key.StartsWith("Logical ")).Select(x =>
-                $"{x.Key}: {ValueFormat.Metric(x.Value, _owner.Preferences)}" + (x.Value.Reason is null ? "" : " — " + x.Value.Reason))) +
+                $"{x.Key}: {(network && x.Value.Unit == Unit.Bytes && x.Value.Value is double bytes ? ValueFormat.Size(bytes, false) : ValueFormat.Metric(x.Value, _owner.Preferences))}" + (x.Value.Reason is null ? "" : " — " + x.Value.Reason))) +
                 "\n\n" + string.Join("\n", current.Resource.Facts.Select(x => $"{x.Key}: {x.Value}")) + "\n\nIdentity: " + current.Resource.Id;
             Composition(current);
         }
@@ -117,6 +144,7 @@ internal sealed class DetailWindow : Window
     {
         ResourceKind.Cpu => reading.Observation.Values.Keys.Where(x => x == "Utilization" || x.StartsWith("Logical ")).ToArray(),
         ResourceKind.Memory => ["In use", "Committed", "Available"],
+        ResourceKind.Network => ["Traffic"],
         _ => []
     };
     private void Composition(Reading reading)

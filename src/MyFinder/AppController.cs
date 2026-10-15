@@ -92,6 +92,11 @@ internal sealed class AppController
         if (!_trayReady && _ticks % 20 == 0) _trayReady = _tray.Add();
         Reconcile(_ticks % 8 == 0);
         Readings = Session.Snapshot();
+        if (!Preferences.NetworkSelectionMade && Session.NetworkReady)
+        {
+            Update(NetworkCollector.InitialSelection(Preferences, Readings) ?? Preferences with { NetworkSelectionMade = true });
+            if (!Preferences.Pins.ContainsKey("network")) ShowSettings();
+        }
         double latest = Readings.Select(x => x.Observation.Elapsed).DefaultIfEmpty(-1).Max();
         if (latest != _lastSample || _ticks % 4 == 0)
         {

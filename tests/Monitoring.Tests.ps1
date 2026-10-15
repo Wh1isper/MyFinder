@@ -100,3 +100,44 @@ Describe 'Native CPU and memory collection' {
         [int]$r.MemoryFacts.'Populated modules' | Should -BeGreaterThan 0
     }
 }
+
+Describe 'Network monitoring' {
+    It 'preserves identity, independent selections, rates and bounded lifecycle state' {
+        $r = Invoke-Scenario network-policy
+        $r.First | Should -Be WarmingUp
+        $r.Rate | Should -Be 1000
+        $r.RenamedIdentity | Should -BeTrue
+        $r.OtherContinued | Should -BeTrue
+        $r.Resume | Should -Be WarmingUp
+        $r.Total | Should -Be 1000
+        $r.Disconnected | Should -Be Disconnected
+        $r.MissingIdentity | Should -BeTrue
+        $r.Failure | Should -Be Unavailable
+        $r.Retained | Should -Be 0
+        $r.Pin | Should -BeTrue
+        $r.Ambiguous | Should -BeTrue
+        $r.DoesNotRepin | Should -BeTrue
+        $r.ByteRate | Should -Be '125 kB/s'
+        $r.BitRate | Should -Be '1 Mb/s'
+    }
+    It 'reads real native GUIDs, link states and directional counters without addresses' {
+        $script:networkResult = Invoke-Scenario network
+        $r = $script:networkResult
+        $r.Count | Should -BeGreaterThan 0
+        $r.Unique | Should -BeTrue
+        $r.ManagedIdentities | Should -BeGreaterThan 0
+        $r.Fresh | Should -BeGreaterThan 0
+        $r.ValidRates | Should -BeTrue
+        $r.PayloadReceived | Should -Be 16777216
+        ($r | ConvertTo-Json -Depth 10) | Should -Not -Match 'Physical address|unicast addresses'
+    }
+    It 'observes controlled local TCP traffic when Windows exposes loopback interface counters' {
+        $r = $script:networkResult
+        if ($r.LoopbackReceived -eq 0 -and $r.LoopbackSent -eq 0) {
+            Set-ItResult -Skipped -Because 'The real 16 MiB local transfer succeeded but Windows bypassed loopback interface octet counters; physical directional traffic remains unqualified.'
+            return
+        }
+        $r.LoopbackReceived | Should -BeGreaterOrEqual $r.PayloadReceived
+        $r.LoopbackSent | Should -BeGreaterOrEqual $r.PayloadReceived
+    }
+}

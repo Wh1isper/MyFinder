@@ -64,6 +64,45 @@ public static class MyFinderDesktopTest {
 }
 
 Describe 'Published monitoring application' {
+    It 'shows live network trends and keeps the compact pin while inspecting another adapter' {
+        $adapters = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' -and $_.Id -match '^\{?[0-9a-fA-F-]{36}\}?$' } | Select-Object -First 2)
+        if ($adapters.Count -lt 2) { Set-ItResult -Skipped -Because 'Two active native adapters are required for real independent inspection.'; return }
+        $ids = @($adapters | ForEach-Object { 'network:' + ([Guid]$_.Id).ToString('D') })
+        $profile = Join-Path $TestDrive 'network-ui'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; MetricOrder=@('cpu','network'); Monitored=@('cpu','memory')+$ids; Pins=@{network=$ids[0]} } | ConvertTo-Json -Depth 5 | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            $panel = Wait-AppWindow $process MyFinder
+            Start-Sleep -Seconds 2
+            $bounds = $panel.Current.BoundingRectangle
+            Invoke-AppButton $panel Inspect_network
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            ($texts -join "`n") | Should -Match 'Receive.*Send'
+            ($texts -join "`n") | Should -Match 'Receive coverage'
+            ($texts -join "`n") | Should -Not -Match 'Current unicast addresses:|Physical address:'
+            Invoke-AppButton $details DetailSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Invoke-AppButton $settings RefreshResources
+            Invoke-AppButton $settings ('InspectResource_' + $ids[1])
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            ($texts -join "`n") | Should -Match ([regex]::Escape($ids[1]))
+            $panel.Current.BoundingRectangle.Width | Should -Be $bounds.Width
+            $panel.Current.BoundingRectangle.Height | Should -Be $bounds.Height
+            Invoke-AppButton $details DetailSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Invoke-AppButton $settings HidePanel
+            Invoke-AppButton $settings ShowPanel
+            Invoke-AppButton $settings ExitMyFinder
+            $process.WaitForExit(10000) | Should -BeTrue
+            $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
+            $saved.Pins.network | Should -Be $ids[0]
+            $saved.Monitored | Should -Contain $ids[1]
+            Test-Path "$profile/last-error.txt" | Should -BeFalse
+        } finally { Stop-TestApp $process }
+    }
     It 'uses real controls for hide/show, detail dismissal, continued collection and explicit exit' {
         $profile = Join-Path $TestDrive 'desktop'
         New-Item $profile -ItemType Directory | Out-Null
@@ -107,7 +146,7 @@ Describe 'Published monitoring application' {
             foreach ($orientation in @('Horizontal', 'Vertical')) {
                 $profile = Join-Path $TestDrive "$style-$orientation"
                 New-Item $profile -ItemType Directory | Out-Null
-                @{ Version=1; Style=$style; Orientation=$orientation; Theme='Dark'; Scale=1.4; Retreat=$false } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+                @{ Version=1; Style=$style; Orientation=$orientation; Theme='Dark'; Scale=1.4; Retreat=$false; NetworkSelectionMade=$true } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
                 $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"' + $profile + '"'), '--settings' -PassThru
                 try {
                     $settings = Wait-AppWindow $process 'MyFinder - Settings'

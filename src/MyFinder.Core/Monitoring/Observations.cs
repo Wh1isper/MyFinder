@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace MyFinder.Core.Monitoring;
 
-public enum ResourceKind { Cpu, Memory }
+public enum ResourceKind { Cpu, Memory, Network }
 public enum Quality { Fresh, WarmingUp, Unavailable, Disconnected, NotMonitored, Stale }
 public enum Unit { Percent, Bytes, BytesPerSecond, Megahertz, Count, Milliseconds, Seconds }
 public sealed record Metric(double? Value, Unit Unit, Quality Quality = Quality.Fresh, string? Reason = null)

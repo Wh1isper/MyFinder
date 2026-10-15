@@ -39,6 +39,18 @@ Charts preserve gaps and extrema while reducing drawing to visible resolution. U
 
 Memory sizes use binary units (KiB/MiB/GiB); raw measurements are retained without display rounding.
 
+## Network adapters
+
+The network loop uses `GetIfTable2` / `MIB_IF_ROW2` separately from CPU/memory. Interface GUIDs identify preferences and history; mutable names and indices never identify an adapter. A changed runtime LUID breaks the counter baseline. The catalog distinguishes physical, virtual/software, loopback and tunnel interfaces and excludes filter interfaces. Link state, reported directional link speeds and model are resource facts, not measured traffic rates.
+
+Receive/send use error-free `InOctets`/`OutOctets` deltas over actual monotonic intervals. The source includes unicast, multicast and broadcast and is not application payload accounting. Reset, missing/down interfaces, monitoring changes and long gaps break the baseline; the next sample warms up. Each direction has an observed-byte total, covered duration and segment count. Totals include only valid observed segments in the current application session. They exclude unseen intervals and are neither lifetime totals nor billing estimates. Virtual/physical interface traffic can overlap and is never added into an Internet-wide total.
+
+Settings independently chooses monitored adapters, one compact pin and byte/s or bit/s display. First discovery selects exactly one active physical adapter when unambiguous. Otherwise Settings requests a choice; later route changes never repin. **Refresh available resources** updates choices after topology changes. Saved absent resources remain selectable and disconnected. Unselected removed entries expire with retention; the catalog retains at most 512 unselected entries in addition to selected resources. Histories share the global time/byte bounds.
+
+Network details show both directions on one scale, explicit units, current readings and observed-segment totals. Addresses stay outside routine snapshots, preferences, logs and history. **Reveal addresses for 30 seconds** makes an on-demand temporary query; changing resource, closing details or expiry clears the display. Address queries are single-flight and do not block collection.
+
+Tests cover real native discovery/counters and deterministic rename, replacement, disconnect, reset, pause, ambiguity and churn behavior. A controlled 16 MiB same-host TCP transfer is exercised separately: Windows can bypass interface octet accounting for loopback, in which case directional counter validation is explicitly skipped. Physical/VPN unplug/reconnect and controlled traffic through another endpoint require an appropriate test environment; no adapter is disabled or reconfigured on the owner's machine.
+
 ## Preferences and diagnostics
 
 Defaults are stored under `%LOCALAPPDATA%\MyFinder\preferences.json`. Use `MyFinder.exe --settings` to open Settings at launch, or `--profile <directory>` for an independent profile. There is one instance per profile. Profile paths are per-user data, not files beside the executable.
