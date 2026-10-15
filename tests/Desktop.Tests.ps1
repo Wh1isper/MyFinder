@@ -183,14 +183,17 @@ Describe 'Published monitoring application' {
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
             $panel = Wait-AppWindow $process MyFinder
             Start-Sleep -Milliseconds 500
+            $appearance = ($settings.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }) -join ' '
+            Invoke-AppButton $settings CloseSettings
             $nativeBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
             $bounds = New-Object System.Drawing.Rectangle($nativeBounds.Left, $nativeBounds.Top, ($nativeBounds.Right-$nativeBounds.Left), ($nativeBounds.Bottom-$nativeBounds.Top))
             $underlay.FormBorderStyle = 'None'; $underlay.ShowInTaskbar = $false; $underlay.TopMost = $true
             $underlay.StartPosition = 'Manual'
-            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]$bounds.Width, [int]$bounds.Height)
+            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]($bounds.Width+12), [int]($bounds.Height+12))
             $underlay.Show()
             foreach ($color in @([System.Drawing.Color]::Black, [System.Drawing.Color]::White)) {
                 $underlay.BackColor = $color; $underlay.Refresh(); [System.Windows.Forms.Application]::DoEvents()
+                [MyFinderDesktopTest]::SetWindowPos($underlay.Handle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null
                 [MyFinderDesktopTest]::SetWindowPos([IntPtr]$panel.Current.NativeWindowHandle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null
                 Start-Sleep -Milliseconds 500
                 $point = New-Object MyFinderDesktopTest+Point([int]($bounds.X+$bounds.Width/2), [int]($bounds.Y+3))
@@ -200,6 +203,15 @@ Describe 'Published monitoring application' {
                     return
                 }
                 $hit.ToInt64() | Should -Be $panel.Current.NativeWindowHandle -Because "panel=$([MyFinderDesktopTest]::Describe([IntPtr]$panel.Current.NativeWindowHandle)); underlay=$([MyFinderDesktopTest]::Describe($underlay.Handle)); hit=$([MyFinderDesktopTest]::Describe($hit)); context=$([MyFinderDesktopTest]::GetThreadDpiAwarenessContext()); old=$oldDpi"
+                # Check an exposed owned-underlay pixel before attributing the panel's alpha response.
+                $underlayPoint = New-Object MyFinderDesktopTest+Point([int]($bounds.Right+4), [int]($bounds.Y+4))
+                [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint($underlayPoint), 2).ToInt64() | Should -Be $underlay.Handle.ToInt64()
+                $probe = New-Object System.Drawing.Bitmap(1,1)
+                $probeGraphics = [System.Drawing.Graphics]::FromImage($probe)
+                try {
+                    $probeGraphics.CopyFromScreen($underlayPoint.X, $underlayPoint.Y, 0, 0, $probe.Size)
+                    $probe.GetPixel(0,0).ToArgb() | Should -Be $color.ToArgb() -Because 'the owned underlay must really display the requested color'
+                } finally { $probeGraphics.Dispose(); $probe.Dispose() }
                 $currentBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
                 $currentBounds.Left | Should -Be $nativeBounds.Left
                 $currentBounds.Top | Should -Be $nativeBounds.Top
@@ -228,12 +240,13 @@ Describe 'Published monitoring application' {
                     if ($a.R -gt 180 -and $a.G -gt 180 -and $a.B -gt 180 -and [Math]::Abs($a.R-$b.R) -lt 5) { $opaquePixels++ }
                 }
             }
-            $status = $settings.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
-            if (($status -join ' ') -match 'Solid background:') {
+            if ($appearance -match 'Solid background:') {
                 $backgroundDifference | Should -BeLessThan 8
             } else { $backgroundDifference | Should -BeGreaterThan 60 }
             $opaquePixels | Should -BeGreaterThan 20
             $underlay.Close()
+            Invoke-AppButton $panel OpenSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
             Invoke-AppButton $settings ExitMyFinder
             $process.WaitForExit(10000) | Should -BeTrue
         } finally {
