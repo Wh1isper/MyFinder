@@ -97,6 +97,8 @@ internal sealed class AppController
             Update(NetworkCollector.InitialSelection(Preferences, Readings) ?? Preferences with { NetworkSelectionMade = true });
             if (!Preferences.Pins.ContainsKey("network")) ShowSettings();
         }
+        if (!Preferences.StorageSelectionMade && Session.StorageReady)
+            Update(StorageCollector.InitialSelection(Preferences, Readings));
         double latest = Readings.Select(x => x.Observation.Elapsed).DefaultIfEmpty(-1).Max();
         if (latest != _lastSample || _ticks % 4 == 0)
         {

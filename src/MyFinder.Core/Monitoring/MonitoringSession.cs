@@ -8,7 +8,11 @@ public sealed class MonitoringSession : IAsyncDisposable
     private readonly Dictionary<string, bool> _wasMonitored = [];
     private readonly Dictionary<string, long> _selectionSegments = [];
     private Preferences _preferences;
-    private readonly Task _system, _network;
+    private readonly Task _system, _network, _storage;
+    private readonly StorageCollector _storageCollector = new();
+    public bool StorageReady => _storageCollector.Ready;
+    public string StorageStatus => _storageCollector.Status;
+    public int StoragePending => _storageCollector.Pending;
     private readonly NetworkCollector _networkCollector = new();
     public bool NetworkReady { get; private set; }
     public HistoryStore History { get; } = new();
@@ -16,12 +20,15 @@ public sealed class MonitoringSession : IAsyncDisposable
     {
         _preferences = preferences;
         _networkCollector.Configure(preferences);
+        _storageCollector.Configure(preferences);
+        _storage = Task.Run(StorageLoop);
         _system = Task.Run(SystemLoop);
         _network = Task.Run(NetworkLoop);
     }
     public void Configure(Preferences preferences)
     {
         _networkCollector.Configure(preferences);
+        _storageCollector.Configure(preferences);
         Volatile.Write(ref _preferences, preferences);
         History.Prune(ObservationClock.Elapsed, preferences.RetentionMinutes * 60);
     }
@@ -31,7 +38,7 @@ public sealed class MonitoringSession : IAsyncDisposable
         {
             double now = ObservationClock.Elapsed;
             double freshness = Math.Max(5, Volatile.Read(ref _preferences).IntervalSeconds * 3);
-            return _latest.Values.Select(x => now - x.Observation.Elapsed > freshness ? x with
+            return _latest.Values.Select(x => now - x.Observation.Elapsed > (x.Resource.Kind == ResourceKind.Volume ? Volatile.Read(ref _preferences).CapacitySeconds * 3 : freshness) ? x with
             {
                 Observation = x.Observation with { Values = x.Observation.Values.ToDictionary(p => p.Key, p => p.Value with { Value = null, Quality = Quality.Stale, Reason = "No recent observation; the source may be delayed." }) }
             } : x).ToArray();
@@ -54,6 +61,26 @@ public sealed class MonitoringSession : IAsyncDisposable
                 _latest[id] = reading with { Observation = sample };
             }
         }
+    }
+    private async Task StorageLoop()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                var readings = _storageCollector.Poll();
+                lock (_gate)
+                {
+                    var ids = readings.Select(x => x.Resource.Id).ToHashSet();
+                    foreach (string id in _latest.Where(x => x.Value.Resource.Kind is ResourceKind.Volume or ResourceKind.Device && !ids.Contains(x.Key)).Select(x => x.Key).ToArray())
+                    { _latest.Remove(id); _wasMonitored.Remove(id); _selectionSegments.Remove(id); }
+                    Publish(readings);
+                }
+                await Task.Delay(TimeSpan.FromSeconds(.5), _stop.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        finally { _storageCollector.Dispose(); }
     }
     private async Task NetworkLoop()
     {
@@ -93,7 +120,7 @@ public sealed class MonitoringSession : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _stop.CancelAsync();
-        await Task.WhenAll(_system, _network).ConfigureAwait(false);
+        await Task.WhenAll(_system, _network, _storage).ConfigureAwait(false);
         _stop.Dispose();
     }
 }

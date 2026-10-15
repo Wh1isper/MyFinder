@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
             var button = new Button
             {
                 Content = stack, Padding = new(8 * preferences.Scale, 4 * preferences.Scale, 8 * preferences.Scale, 4 * preferences.Scale),
-                Width = (key == "network" ? 184 : preferences.Style == PanelStyle.Minimal ? 104 : 126) * preferences.Scale,
+                Width = (key is "network" or "storage" ? 184 : preferences.Style == PanelStyle.Minimal ? 104 : 126) * preferences.Scale,
                 CornerRadius = new(preferences.Style == PanelStyle.Capsules ? 18 : 5), HorizontalAlignment = HorizontalAlignment.Stretch
             };
             button.Click += (_, _) => _owner.Inspect(_owner.ResourceForMetric(key));
@@ -77,6 +77,8 @@ public sealed partial class MainWindow : Window
             var reading = readings.FirstOrDefault(x => x.Resource.Id == id);
             pair.Value.Text = reading is null ? "Choose resource" : reading.Resource.Kind == ResourceKind.Network
                 ? $"↓ {ValueFormat.Metric(reading.Observation.Get("Receive"), _owner.Preferences)}\n↑ {ValueFormat.Metric(reading.Observation.Get("Send"), _owner.Preferences)}"
+                : reading.Resource.Kind == ResourceKind.Volume ? $"Used {ValueFormat.Metric(reading.Observation.Get("Utilization"), _owner.Preferences, true)}\n{ValueFormat.Metric(reading.Observation.Get("Used / reserved"), _owner.Preferences, true)}"
+                : reading.Resource.Kind == ResourceKind.Device ? $"R {ValueFormat.Metric(reading.Observation.Get("Read"), _owner.Preferences, true)}\nW {ValueFormat.Metric(reading.Observation.Get("Write"), _owner.Preferences, true)}"
                 : ValueFormat.Metric(reading.Observation.Get("Utilization", Unit.Percent), _owner.Preferences);
             ToolTipService.SetToolTip(pair.Value, reading is null ? "Choose a resource in Settings." : $"{reading.Resource.Name}\n{reading.Observation.Time:T}\n{reading.Observation.Get(reading.Resource.Kind == ResourceKind.Network ? "Receive" : "Utilization").Reason}");
         }

@@ -141,3 +141,66 @@ Describe 'Network monitoring' {
         $r.LoopbackSent | Should -BeGreaterOrEqual $r.PayloadReceived
     }
 }
+
+Describe 'Storage monitoring' {
+    It 'keeps slow work bounded, rejects late generations and separates replacement identities' {
+        $r = Invoke-Scenario storage-policy
+        $r.FastProgress | Should -BeTrue
+        $r.BlockedCalls | Should -Be 1
+        $r.CacheInvalidated | Should -BeTrue
+        $r.ReturnedAtNewPath | Should -BeTrue
+        $r.LateGeneration | Should -BeGreaterThan 0
+        $r.Missing | Should -BeTrue
+        $r.Boundary | Should -BeTrue
+        $r.Replaced | Should -BeTrue
+        $r.ComparisonLimit | Should -Be 4
+        $r.VolumeExcluded | Should -BeTrue
+        $r.Vpd | Should -BeTrue
+        $r.PortRejected | Should -BeTrue
+        $r.TruncatedRejected | Should -BeTrue
+        $r.UnchangedPin | Should -BeTrue
+    }
+    It 'collects actual volume partitions and identity-checked device activity' {
+        $script:storageResult = Invoke-Scenario storage
+        $r = $script:storageResult
+        $r.Ready | Should -BeTrue
+        $volumes = @($r.Readings | Where-Object { $_.Resource.Kind -eq 3 -and $null -ne $_.Observation.Values.Total.Value })
+        $volumes.Count | Should -BeGreaterThan 0
+        foreach ($volume in $volumes) {
+            $v = $volume.Observation.Values
+            ($v.'Used / reserved'.Value + $v.Free.Value) | Should -Be $v.Total.Value
+            $v.Total.Value | Should -BeGreaterThan 0
+            $v.'Caller available'.Value | Should -BeGreaterOrEqual 0
+        }
+        $devices = @($r.Readings | Where-Object { $_.Resource.Kind -eq 4 -and $_.Resource.Id -notlike '*unverified*' })
+        $devices.Count | Should -BeGreaterThan 0
+        @($devices | Where-Object { $_.Observation.Values.Read.Quality -eq 0 }).Count | Should -BeGreaterThan 0
+        foreach ($device in $devices) {
+            if ($null -ne $device.Observation.Values.Activity.Value) {
+                $device.Observation.Values.Activity.Value | Should -BeGreaterOrEqual 0
+                $device.Observation.Values.Activity.Value | Should -BeLessOrEqual 100
+            }
+        }
+    }
+    It 'continues real concurrent histories during dedicated file I/O and monitoring changes' {
+        $script:storageSession = Invoke-Scenario storage-session (Join-Path $TestDrive 'controlled-io')
+        $r = $script:storageSession
+        $r.ContinuingVolumes | Should -Be $r.Volumes
+        $r.CpuSamples | Should -BeGreaterThan 10
+        $r.Paused | Should -Be NotMonitored
+        $r.Resumed | Should -BeTrue
+        $r.PayloadBytes | Should -Be 33554432
+        $r.FileRemoved | Should -BeTrue
+        $r.PeakWrite | Should -BeGreaterThan 0
+        $r.HistoryBytes | Should -BeLessOrEqual 67108864
+    }
+    It 'qualifies at least three simultaneously observed native volumes when available' {
+        if ($script:storageSession.Volumes -lt 3) { Set-ItResult -Skipped -Because 'This machine has fewer than three native volumes; no test volume is provisioned on the owner host.'; return }
+        $script:storageSession.ContinuingVolumes | Should -BeGreaterOrEqual 3
+    }
+    It 'qualifies two native device identities when the hardware is available' {
+        $devices = @($script:storageResult.Readings | Where-Object { $_.Resource.Kind -eq 4 -and $_.Resource.Id -notlike '*unverified*' })
+        if ($devices.Count -lt 2) { Set-ItResult -Skipped -Because 'Only one verified local device is present; two-device real comparison and removable topology remain unqualified.'; return }
+        @($devices.Resource.Id | Select-Object -Unique).Count | Should -Be $devices.Count
+    }
+}

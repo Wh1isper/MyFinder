@@ -65,10 +65,17 @@ internal sealed class SettingsWindow : Window
         form.Children.Add(Ui.Text("Network adapters", 20));
         form.Children.Add(Ui.Text("Monitor, compact pin and detail inspection are independent. Choose an adapter below when first-run discovery is ambiguous. Addresses stay hidden unless temporarily revealed in details."));
         Toggle(form, "Network rates in bits/s (otherwise bytes/s)", preferences.NetworkBits, value => _owner.Update(_owner.Preferences with { NetworkBits = value }));
-        ResourceChoices(form, ResourceKind.Network, "network");
+        ResourceChoices(form, "network", ResourceKind.Network);
+        form.Children.Add(Ui.Text("Storage capacity and activity", 20));
+        form.Children.Add(Ui.Text("Volumes show capacity; devices show shared activity. Monitoring more drives does not add compact tiles. Comparison is limited to four explicitly chosen devices."));
+        Choice(form, "Volume capacity interval (seconds)", new[] { 10, 30, 60 }, preferences.CapacitySeconds, value => _owner.Update(_owner.Preferences with { CapacitySeconds = value }));
+        Toggle(form, "Storage sizes and rates in binary units (KiB, MiB, GiB)", preferences.StorageBinary, value => _owner.Update(_owner.Preferences with { StorageBinary = value }));
+        ResourceChoices(form, "storage", ResourceKind.Volume, ResourceKind.Device);
+        form.Children.Add(Ui.Button("Open storage overview", () => { Dismiss(); _owner.Inspect("storage:overview"); }, "OpenStorageOverview"));
+        form.Children.Add(Ui.Button("Open storage comparison", () => { Dismiss(); _owner.Inspect("storage:comparison"); }, "OpenStorageComparison"));
         form.Children.Add(Ui.Button("Refresh available resources", Build, "RefreshResources"));
         form.Children.Add(Ui.Text("Compact metrics and order", 20));
-        foreach (string id in new[] { "cpu", "memory", "network" })
+        foreach (string id in new[] { "cpu", "memory", "network", "storage" })
         {
             Toggle(form, "Show " + id + " on the compact panel", preferences.MetricOrder.Contains(id), value =>
             {
@@ -89,22 +96,37 @@ internal sealed class SettingsWindow : Window
         _status.Text = $"Panel intent: {(_owner.Preferences.Shown ? "shown" : "hidden")}" + (_owner.Retreated ? " · temporarily retreated for fullscreen" : "") +
             $"\n{_owner.AppearanceStatus}\n{stats.Samples:N0} retained observations · {stats.EstimatedBytes / 1048576d:F1} MiB estimated history storage" +
             (_owner.Preferences.Pins.ContainsKey("network") ? "" : "\nNetwork: choose a monitored adapter and compact pin below.") +
+            $"\n{_owner.Session.StorageStatus} · {_owner.Session.StoragePending} pending operations" +
+            (_owner.Preferences.Pins.ContainsKey("storage") ? "" : "\nStorage: choose a compact pin below.") +
             (_owner.Warning is null ? "" : "\n" + _owner.Warning);
     }
-    private void ResourceChoices(StackPanel form, ResourceKind kind, string pin)
+    private void ResourceChoices(StackPanel form, string pin, params ResourceKind[] kinds)
     {
-        var readings = _owner.Readings.Where(x => x.Resource.Kind == kind).OrderBy(x => x.Resource.Name).ToArray();
+        var readings = _owner.Readings.Where(x => kinds.Contains(x.Resource.Kind)).OrderBy(x => x.Resource.Kind).ThenBy(x => x.Resource.Name).ToArray();
         if (readings.Length == 0) form.Children.Add(Ui.Text("No resources discovered yet. Refresh to retry; other monitoring continues."));
         foreach (var reading in readings)
         {
             string id = reading.Resource.Id;
-            string label = reading.Resource.Name + " · " + reading.Resource.Facts.GetValueOrDefault("Category", kind.ToString());
+            string label = reading.Resource.Name + " · " + reading.Resource.Facts.GetValueOrDefault("Category", reading.Resource.Kind.ToString());
             Toggle(form, "Monitor " + label, _owner.Preferences.Monitored.Contains(id), value =>
             {
                 var monitored = _owner.Preferences.Monitored.ToHashSet(); if (value) monitored.Add(id); else monitored.Remove(id);
-                _owner.Update(_owner.Preferences with { Monitored = monitored.ToArray(), NetworkSelectionMade = true });
+                _owner.Update(_owner.Preferences with { Monitored = monitored.ToArray(), NetworkSelectionMade = pin == "network" || _owner.Preferences.NetworkSelectionMade, StorageSelectionMade = pin == "storage" || _owner.Preferences.StorageSelectionMade });
             });
             form.Children.Add(Ui.Button("Inspect " + label, () => { Dismiss(); _owner.Inspect(id); }, "InspectResource_" + id));
+            if (reading.Resource.Kind == ResourceKind.Device)
+            {
+                var notice = Ui.Text("");
+                CheckBox? compare = null;
+                compare = Toggle(form, "Compare " + label, _owner.Preferences.StorageComparison.Contains(id), value =>
+                {
+                    var selection = _owner.Preferences.StorageComparison.ToHashSet();
+                    if (value && selection.Count >= 4 && !selection.Contains(id)) { compare!.IsChecked = false; notice.Text = "Choose at most four devices. Remove one before adding another."; return; }
+                    if (value) selection.Add(id); else selection.Remove(id);
+                    notice.Text = ""; _owner.Update(_owner.Preferences with { StorageComparison = selection.ToArray() });
+                });
+                form.Children.Add(notice);
+            }
         }
         var choice = new ComboBox { Header = "Compact " + pin + " pin (does not enable monitoring)", HorizontalAlignment = HorizontalAlignment.Stretch };
         choice.Items.Add(new ComboBoxItem { Content = "No pin", Tag = "" });
@@ -116,7 +138,7 @@ internal sealed class SettingsWindow : Window
             if (choice.SelectedItem is not ComboBoxItem item) return;
             var pins = new Dictionary<string, string>(_owner.Preferences.Pins); pins.Remove(pin);
             if ((string)item.Tag != "") pins[pin] = (string)item.Tag;
-            _owner.Update(_owner.Preferences with { Pins = pins, NetworkSelectionMade = true });
+            _owner.Update(_owner.Preferences with { Pins = pins, NetworkSelectionMade = pin == "network" || _owner.Preferences.NetworkSelectionMade, StorageSelectionMade = pin == "storage" || _owner.Preferences.StorageSelectionMade });
         };
         Ui.Name(choice, "Compact " + pin + " pin"); form.Children.Add(choice);
     }
@@ -128,11 +150,11 @@ internal sealed class SettingsWindow : Window
         choice.SelectionChanged += (_, _) => { if (choice.SelectedItem is T value) update(value); };
         Ui.Name(choice, label); form.Children.Add(choice);
     }
-    private static void Toggle(StackPanel form, string label, bool value, Action<bool> update)
+    private static CheckBox Toggle(StackPanel form, string label, bool value, Action<bool> update)
     {
         var toggle = new CheckBox { Content = label, IsChecked = value };
         toggle.Checked += (_, _) => update(true); toggle.Unchecked += (_, _) => update(false);
-        Ui.Name(toggle, label); form.Children.Add(toggle);
+        Ui.Name(toggle, label); form.Children.Add(toggle); return toggle;
     }
     private static void Slider(StackPanel form, string label, double minimum, double maximum, double step, double value, Action<double> update)
     {
