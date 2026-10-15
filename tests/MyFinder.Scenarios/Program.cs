@@ -15,10 +15,103 @@ object result = args.FirstOrDefault() switch
     "expiry" => await ExpiryScenario(),
     "network-policy" => NetworkPolicy(),
     "network" => await NativeNetwork(),
+    "storage" => await NativeStorage(),
+    "storage-policy" => await StoragePolicy(),
+    "storage-session" => await StorageSession(args[1]),
     _ => throw new ArgumentException("Specify a known scenario.")
 };
 Console.WriteLine(JsonSerializer.Serialize(result));
 
+static async Task<object> StoragePolicy()
+{
+    double now = 0;
+    StorageLocation[] topology = [new("slow", ResourceKind.Volume), new("fast", ResourceKind.Volume), new("device-path", ResourceKind.Device)];
+    using var release = new ManualResetEventSlim(false);
+    int slowCalls = 0, fastCalls = 0;
+    string deviceIdentity = "device:first";
+    using var collector = new StorageCollector(() => topology, (location, generation, monitored) =>
+    {
+        if (location.Path == "slow") { Interlocked.Increment(ref slowCalls); release.Wait(TimeSpan.FromSeconds(10)); }
+        else Interlocked.Increment(ref fastCalls);
+        string id = location.Kind == ResourceKind.Volume ? StorageNative.VolumeId(location.Path) : deviceIdentity;
+        return new(new(id, location.Kind, "Same display name", new Dictionary<string, string>()), new(id, DateTimeOffset.UnixEpoch.AddSeconds(now), now, generation,
+            new Dictionary<string, Metric> { [location.Kind == ResourceKind.Volume ? "Total" : "Read"] = new(100, Unit.Bytes) }));
+    }, () => now, () => []);
+    var preferences = new Preferences { Monitored = ["volume:slow", "volume:fast", "device:first"], Pins = new() { ["storage"] = "volume:fast" } };
+    collector.Configure(preferences);
+    Reading[] readings = [];
+    for (int i = 0; i < 30; i++) { readings = collector.Poll(); await Task.Delay(10); }
+    bool fastProgress = readings.Single(x => x.Resource.Id == "volume:fast").Observation.Get("Total").Value == 100;
+    int blockedCalls = slowCalls;
+    collector.Configure(preferences with { Monitored = ["device:first"] });
+    collector.Configure(preferences);
+    bool cacheInvalidated = collector.Poll().Single(x => x.Resource.Id == "volume:fast").Observation.Get("Total").Value is null;
+    release.Set();
+    for (int i = 0; i < 20; i++) { readings = collector.Poll(); await Task.Delay(10); }
+    long lateGeneration = readings.Single(x => x.Resource.Id == "volume:slow").Observation.Segment;
+    long beforeGeneration = readings.Single(x => x.Resource.Id == "volume:fast").Observation.Segment;
+    topology = [new("device-path", ResourceKind.Device)]; now = 31;
+    for (int i = 0; i < 20; i++) { readings = collector.Poll(); await Task.Delay(10); }
+    bool missing = readings.Single(x => x.Resource.Id == "volume:fast").Observation.Get("Total").Quality == Quality.Disconnected;
+    topology = [new("fast", ResourceKind.Volume), new("device-path", ResourceKind.Device)]; deviceIdentity = "device:replacement"; now = 62;
+    for (int i = 0; i < 20; i++) { readings = collector.Poll(); await Task.Delay(10); }
+    bool boundary = readings.Single(x => x.Resource.Id == "volume:fast").Observation.Segment > beforeGeneration;
+    bool replaced = readings.Any(x => x.Resource.Id == "device:replacement") && readings.Single(x => x.Resource.Id == "device:first").Observation.Get("Read").Quality == Quality.Disconnected;
+    topology = [new("fast", ResourceKind.Volume), new("new-device-path", ResourceKind.Device)]; now = 93;
+    for (int i = 0; i < 20; i++) { readings = collector.Poll(); await Task.Delay(10); }
+    bool returnedAtNewPath = readings.Single(x => x.Resource.Id == "device:replacement").Observation.Get("Read").Value == 100;
+    var normalized = (preferences with { StorageComparison = ["volume:fast", "device:1", "device:1", "device:2", "device:3", "device:4", "device:5"] }).Normalize();
+    byte[] descriptor = new byte[36]; BitConverter.GetBytes((uint)1).CopyTo(descriptor, 8); BitConverter.GetBytes((uint)3).CopyTo(descriptor, 16); BitConverter.GetBytes((ushort)8).CopyTo(descriptor, 20); descriptor[28] = 0x50;
+    string? identity = StorageNative.DeviceIdentifier(descriptor);
+    BitConverter.GetBytes((uint)1).CopyTo(descriptor, 24); // A port identifier cannot identify the whole device.
+    return new { FastProgress = fastProgress, CacheInvalidated = cacheInvalidated, ReturnedAtNewPath = returnedAtNewPath, BlockedCalls = blockedCalls, SlowCalls = slowCalls, LateGeneration = lateGeneration, Missing = missing, Boundary = boundary, Replaced = replaced,
+        ComparisonLimit = normalized.StorageComparison.Length, VolumeExcluded = !normalized.StorageComparison.Contains("volume:fast"), Vpd = identity is not null,
+        PortRejected = StorageNative.DeviceIdentifier(descriptor) is null, TruncatedRejected = StorageNative.DeviceIdentifier(descriptor[..15]) is null,
+        UnchangedPin = preferences.Pins["storage"] == "volume:fast", FastCalls = fastCalls };
+}
+static async Task<object> StorageSession(string directory)
+{
+    Directory.CreateDirectory(directory);
+    var initial = StorageNative.Discover();
+    var volumes = initial.Where(x => x.Kind == ResourceKind.Volume).Select(x => StorageNative.ReadVolume(x.Path)).ToArray();
+    var devices = initial.Where(x => x.Kind == ResourceKind.Device).Select(x => StorageNative.ReadDevice(x.Path)).Where(x => x.Durable).ToArray();
+    var ids = volumes.Select(x => x.Resource.Id).Concat(devices.Select(x => x.Id)).Concat(["cpu", "memory"]).ToArray();
+    var preferences = new Preferences { Monitored = ids, CapacitySeconds = 10, IntervalSeconds = .5 };
+    await using var session = new MonitoringSession(preferences);
+    await Task.Delay(2500);
+    string file = Path.Combine(directory, "myfinder-controlled-io-" + Guid.NewGuid().ToString("N") + ".bin");
+    const int bytes = 32 * 1024 * 1024;
+    await using (var stream = new FileStream(file, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 65536, FileOptions.WriteThrough | FileOptions.DeleteOnClose | FileOptions.Asynchronous))
+    {
+        byte[] buffer = new byte[1024 * 1024]; Random.Shared.NextBytes(buffer);
+        for (int i = 0; i < 32; i++) await stream.WriteAsync(buffer);
+        stream.Flush(true); stream.Position = 0;
+        while (await stream.ReadAsync(buffer) > 0) { }
+        await Task.Delay(1200);
+    }
+    await Task.Delay(10000);
+    var histories = volumes.ToDictionary(x => x.Resource.Id, x => session.History.Read(x.Resource.Id, 0));
+    string pausedId = volumes[0].Resource.Id;
+    session.Configure(preferences with { Monitored = ids.Where(x => x != pausedId).ToArray() });
+    await Task.Delay(800);
+    var paused = session.Snapshot().Single(x => x.Resource.Id == pausedId).Observation.Get("Total").Quality.ToString();
+    session.Configure(preferences); await Task.Delay(1200);
+    return new { Volumes = volumes.Length, Devices = devices.Length, ContinuingVolumes = histories.Count(x => x.Value.Length >= 2),
+        Paused = paused, Resumed = session.History.Read(pausedId, 0).Last().Segment != histories[pausedId].Last().Segment,
+        CpuSamples = session.History.Read("cpu", 0).Length, PayloadBytes = bytes, FileRemoved = !File.Exists(file),
+        PeakWrite = devices.SelectMany(x => session.History.Read(x.Id, 0)).Select(x => x.Get("Write").Value ?? 0).DefaultIfEmpty(0).Max(),
+        MaximumStoragePending = session.StoragePending, HistoryBytes = session.History.Statistics.EstimatedBytes };
+}
+static async Task<object> NativeStorage()
+{
+    using var collector = new StorageCollector(); collector.Configure(new());
+    Reading[] readings = [];
+    for (int i = 0; i < 60; i++) { readings = collector.Poll(); if (collector.Ready) break; await Task.Delay(100); }
+    var preferences = new Preferences { Monitored = readings.Select(x => x.Resource.Id).ToArray(), CapacitySeconds = 10 };
+    collector.Configure(preferences);
+    for (int i = 0; i < 40; i++) { readings = collector.Poll(); await Task.Delay(100); }
+    return new { collector.Ready, collector.Pending, Readings = readings };
+}
 static object NetworkPolicy()
 {
     var a = new AdapterSnapshot(Guid.NewGuid(), 1, "Adapter", "Fixture", 6, true, 1, 1000000, 1000000, 100, 200);

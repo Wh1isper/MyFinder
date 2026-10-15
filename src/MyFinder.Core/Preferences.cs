@@ -28,6 +28,9 @@ public sealed record Preferences
     public bool NetworkBits { get; init; }
     public bool NetworkSelectionMade { get; init; }
     public bool StorageBinary { get; init; }
+    public bool StorageSelectionMade { get; init; }
+    public int CapacitySeconds { get; init; } = 30;
+    public string[] StorageComparison { get; init; } = [];
     public string PreferredDisplay { get; init; } = "";
     public Dictionary<string, Placement> Placements { get; init; } = [];
     public string[] MetricOrder { get; init; } = ["cpu", "memory"];
@@ -37,6 +40,8 @@ public sealed record Preferences
     public Preferences Normalize() => this with
     {
         Version = 1,
+        CapacitySeconds = CapacitySeconds is 10 or 30 or 60 ? CapacitySeconds : 30,
+        StorageComparison = (StorageComparison ?? []).Where(x => x is not null && x.StartsWith("device:")).Distinct().Take(4).ToArray(),
         Scale = double.IsFinite(Scale) ? Math.Clamp(Scale, .8, 2) : 1,
         BackgroundOpacity = double.IsFinite(BackgroundOpacity) ? Math.Clamp(BackgroundOpacity, .25, 1) : 1,
         IntervalSeconds = IntervalSeconds is .5 or 1 or 2 ? IntervalSeconds : 1,

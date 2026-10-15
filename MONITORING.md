@@ -51,11 +51,39 @@ Network details show both directions on one scale, explicit units, current readi
 
 Tests cover real native discovery/counters and deterministic rename, replacement, disconnect, reset, pause, ambiguity and churn behavior. A controlled 16 MiB same-host TCP transfer is exercised separately: Windows can bypass interface octet accounting for loopback, in which case directional counter validation is explicitly skipped. Physical/VPN unplug/reconnect and controlled traffic through another endpoint require an appropriate test environment; no adapter is disabled or reconfigured on the owner's machine.
 
+## Volumes and storage devices
+
+Volumes and devices are separate resources. Settings chooses the monitored set, one compact storage pin, and up to four explicitly selected devices for comparison. First-run storage selection pins and monitors the Windows volume when its identity is known; later discovery never silently substitutes another volume. The default compact tile shows used/reserved capacity. A device pin instead shows read/write rates. Adding monitored volumes or devices does not add tiles.
+
+**Storage overview** lists every monitored storage resource, including unavailable entries. **Storage comparison** uses the selected devices as small multiples with shared axes for read/write, activity or response time. Neither view sums parent-device activity with child-volume capacity or adds device-busy percentages. Inspecting another resource leaves monitoring, pin and comparison choices unchanged.
+
+### Capacity and topology
+
+- `FindFirstVolume` enumerates local volume GUID paths; drive letters and labels are presentation only. `GetDiskSpaceInformation` provides actual allocation units independent of quotas. Total and free form a coherent partition; **used / reserved = total − free**. Caller-available quota space is a separate field.
+- On a filesystem reporting no quota support, `GetDiskFreeSpaceEx` supplies capacity if the allocation-unit query is unsupported. On quota-capable filesystems an unavailable actual total remains unavailable rather than being replaced by the caller's quota.
+- Capacity defaults to 30 seconds, with 10/30/60-second settings. Its timestamp, freshness and chart continuity use this slower cadence. WMI boot-volume, system boot-files volume and page-file roles refresh in a separate single-flight inventory operation.
+- `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` supplies zero, one or multiple reported device numbers. Each mapped device's identity is queried separately and included in that volume snapshot. Unknown/partial mappings retain useful capacity and never attribute an unrelated disk's activity. Network shares are outside local volume enumeration and have no local-device attribution.
+- SetupAPI enumerates present disk interfaces. A device-associated VPD identifier is preferred; reported bus/model/vendor/serial identity is the fallback. Raw identifiers are hashed for resource keys. A device without a usable identity has a session-only entry and explicitly unavailable activity. Multiple present claimants for one identity are ambiguous; an absent old interface path does not suppress a single returning device.
+
+### Device activity and source isolation
+
+`PhysicalDisk` PDH supplies read/write byte rates, idle-time percentage and average seconds per completed transfer. The collector checks a fresh native device number and durable identity before and after the counter snapshot. A changed binding, selection generation or prolonged gap establishes a new baseline. **Activity = 100 − idle-time percentage**; response time is shown in milliseconds. These are Windows-reported device metrics shared by all its volumes, including caching/storage-stack effects. They do not identify hidden hardware below RAID, virtualization or Storage Spaces.
+
+A coordinator schedules at most eight outstanding storage operations, one discovery and one role-inventory operation. A slow native request keeps its slot; timeouts never spawn replacement workers behind it. Other slots and the independent CPU/network loops continue. If all eight storage slots are blocked, additional storage work waits and old values become stale. No synchronous storage I/O runs on the UI thread. Changed generations discard late results and cached metrics; stopped intervals cannot be backfilled on re-enable. Removed unselected entries expire with retention and have a 512-entry catalog bound in addition to current/selected resources. Shared history retains its global 64 MiB/time bounds.
+
+Native tests use read-only discovery and dedicated temporary files with delete-on-close for controlled I/O. They never format, mount, raw-write, change storage policy or delete user files. Three-or-more-volume histories and the native UI are exercised when the host provides them. Real two-device comparison, removable hot-plug, complex topology and I/O on disposable test volumes require their matching environments; absence is a reported qualification gap.
+
 ## Preferences and diagnostics
 
 Defaults are stored under `%LOCALAPPDATA%\MyFinder\preferences.json`. Use `MyFinder.exe --settings` to open Settings at launch, or `--profile <directory>` for an independent profile. There is one instance per profile. Profile paths are per-user data, not files beside the executable.
 
 Each save serializes a validated snapshot through a same-directory temporary file and atomic replacement. Invalid individual fields fall back without discarding other choices. Unreadable documents and newer schema versions remain read-only with a visible warning; the original file is preserved. Save failures are visible in Settings. An unhandled application exception is recorded as `last-error.txt` in the selected profile and remains a failure, not a synthetic successful session.
+
+## Runtime measurements
+
+After building, run `./scripts/measure-runtime.ps1 -SecondsPerPhase 60` in an appropriate Windows test session. It starts an isolated profile, monitors available local resources (up to 8 adapters, 16 volumes and 16 devices), measures visible-panel/closed-detail and open-CPU-detail phases, then exits that instance. JSON includes actual resource counts, total-machine CPU share, private bytes and handle samples. The test-only scenario host supplies native inventory and is not packaged with the application. No address reveal or screen capture is used.
+
+Record desktop occlusion, hardware and workload with the JSON. Short runs do not establish long-soak stability, unoccluded rendering cost or a resource-count workload the host does not provide. The initial engineering targets remain below 1% total-machine CPU with details closed, below 3% with one detail open and below 200 MiB steady private bytes; measurements must be reported even when they exceed a target. Full qualification includes at least two maximum-retention windows with lifecycle and resource churn, not just an idle process left running.
 
 ## Verification boundary
 

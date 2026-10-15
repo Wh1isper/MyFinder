@@ -19,7 +19,7 @@ internal sealed class TrendChart : UserControl
     private string[] _metrics = [];
     private Preferences _preferences = new();
     private bool _storage;
-    private double _end, _duration;
+    private double _end, _duration, _gap;
     private double? _maximum;
     private double? _selected;
     public TrendChart()
@@ -34,10 +34,10 @@ internal sealed class TrendChart : UserControl
         KeyDown += OnKey;
     }
     public void ResetInspection() => _selected = null;
-    public void Update(Observation[] samples, string[] metrics, Preferences preferences, int rangeMinutes, bool storage = false, double? maximum = null)
+    public void Update(Observation[] samples, string[] metrics, Preferences preferences, int rangeMinutes, bool storage = false, double? maximum = null, double? maximumGap = null)
     {
         _samples = samples; _metrics = metrics; _preferences = preferences; _storage = storage; _maximum = maximum;
-        _end = ObservationClock.Elapsed; _duration = rangeMinutes * 60;
+        _end = ObservationClock.Elapsed; _duration = rangeMinutes * 60; _gap = maximumGap ?? Math.Max(5, preferences.IntervalSeconds * 3);
         Draw();
     }
     private void Draw()
@@ -62,7 +62,7 @@ internal sealed class TrendChart : UserControl
         for (int series = 0; series < _metrics.Length; series++)
         {
             var brush = Ui.Brush(series == 0 ? Ui.Accent : Ui.Secondary);
-            foreach (var segment in PlotReduction.Segments(_samples, _metrics[series], Math.Max(5, _preferences.IntervalSeconds * 3), (int)width))
+            foreach (var segment in PlotReduction.Segments(_samples, _metrics[series], _gap, (int)width))
             {
                 var line = new Polyline { Stroke = brush, StrokeThickness = 2, IsHitTestVisible = false };
                 if (series > 0) line.StrokeDashArray = [3, 2];

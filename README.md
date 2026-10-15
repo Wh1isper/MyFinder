@@ -4,7 +4,7 @@
 
 A movable, persistent Windows monitoring panel built with C# and WinUI 3.
 
-**Status: CPU, memory, named-adapter network monitoring and the desktop panel are implemented; storage is in progress.** The application samples real Windows counters, retains bounded recent history, and provides a tray-owned panel, details and persistent settings. See [MONITORING.md](MONITORING.md) for source meanings, controls and verification boundaries.
+**Status: the desktop panel, CPU/memory, named-adapter network, and multi-resource storage monitoring are implemented. Hardware/OS qualification remains incomplete.** The application samples real Windows counters, retains bounded recent history, and provides a tray-owned panel, details and persistent settings. See [MONITORING.md](MONITORING.md) for source meanings, controls and verification boundaries.
 
 ## Direction
 
