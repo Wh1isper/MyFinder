@@ -4,7 +4,7 @@
 
 A movable, persistent Windows monitoring panel built with C# and WinUI 3.
 
-**Status: engineering foundation, not a finished monitoring application.** The current application opens a development window. Build, package, and test commands are provided; CPU/network/memory/disk widgets and desktop-bar behavior are not implemented yet. No mock metrics are presented as real monitoring.
+**Status: CPU/memory monitoring and the desktop panel are implemented; network and storage are in progress.** The application samples real Windows counters, retains bounded recent history, and provides a tray-owned panel, details and persistent settings. See [MONITORING.md](MONITORING.md) for source meanings, controls and verification boundaries.
 
 ## Direction
 
@@ -18,7 +18,7 @@ Deliver complete modules, including configuration, failure behavior, tests, and 
 - Adjustable compact size, three styles, and system-following light/dark appearance. Optional background-only opacity preserves foreground readability, with a solid fallback.
 - Explicit preferences for placement, layout, visibility, selected metrics/resources, observation cadence, and recent-history presentation.
 
-The adopted compatibility target is Windows 10 21H2 build 19044 or newer, x64; this is not a vendor lifecycle-support claim. Matching runtime and packaging tests are required before that target becomes a shipped capability. **The current foundation still requires Windows 11 build 22000 or newer.** Design images do not establish runtime or packaging compatibility.
+The adopted compatibility target is Windows 10 21H2 build 19044 or newer, x64; this is not a vendor lifecycle-support claim. Matching runtime and packaging tests are required before that target becomes a shipped capability. **The current build still requires Windows 11 build 22000 or newer.** Design images do not establish runtime or packaging compatibility.
 
 Read the [design specification](spec/README.md) from overview to detailed flows, and compare the [visual prototypes](spec/prototypes/README.md). They describe the target product, not implemented capabilities. The [design principles and boundaries](spec/08-design-baseline.md) connect the high-level concepts; concrete tuning parameters and verification environments belong to implementation planning.
 
@@ -134,7 +134,7 @@ Run the same build and package checks used by CI:
 ./scripts/test.ps1
 ```
 
-Tests use function-style Pester specifications. They inspect actual archives and manifests, start and close the compiled application, and exercise self-signing with a temporary certificate. The default test run never imports a trusted certificate or installs an app. Reports are written to `TestResults/results.xml`.
+Tests use function-style Pester specifications and a test-only .NET scenario host invoking production observation logic. They inspect actual archives and manifests, exercise real CPU/memory collection and native UI controls with isolated profiles, and exercise self-signing with a temporary certificate. The default test run never imports a trusted certificate or installs an app. Reports are written to `TestResults/results.xml`.
 
 On a **disposable Windows machine with an interactive desktop**, an administrator can additionally run:
 
@@ -146,7 +146,8 @@ This explicitly enables installation tests that temporarily trust their own test
 
 ## Repository and automation
 
-- `src/MyFinder`: the application; no speculative service framework or plugin layer.
+- `src/MyFinder`: WinUI windows, tray, native desktop integration and application lifetime.
+- `src/MyFinder.Core`: preferences, presentation policy, native collection and bounded history shared with the test-only scenario host.
 - `scripts`: shared local/CI build, test, packaging, and signing commands.
 - `tests`: executable packaging, launch, and installation checks.
 - `packaging`: MSIX manifest and original application assets.
