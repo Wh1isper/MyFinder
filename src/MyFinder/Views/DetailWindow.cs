@@ -15,7 +15,7 @@ internal sealed class DetailWindow : Window
     private readonly Grid _root = new();
     private readonly ComboBox _resource = new() { Header = "Inspect resource", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _metric = new() { Header = "Trend", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly ComboBox _range = new() { Header = "Recent range", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox _range = new() { Header = "Recent range (min)", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _heading = Ui.Text("", 22), _quality = Ui.Muted("");
     private readonly ReadingSummary _summary = new();
     private readonly FactTable _observations = new(), _hardware = new();
@@ -60,7 +60,31 @@ internal sealed class DetailWindow : Window
         _body.ColumnDefinitions.Add(new() { Width = new(210) }); _body.ColumnDefinitions.Add(new());
         Ui.Id(_rail, "ResourceRail"); Ui.Name(_rail, "Inspect a resource; monitoring and compact pins stay unchanged");
         _body.Children.Add(_rail); Grid.SetColumn(_scroll, 1); _body.Children.Add(_scroll); Grid.SetRow(_body, 3); _root.Children.Add(_body);
-        var toolbar = Ui.Columns(_resource, _metric, _range); Grid.SetRow(toolbar, 2); _root.Children.Add(toolbar);
+        var toolbar = new Grid { ColumnSpacing = 12, RowSpacing = 8 };
+        FrameworkElement[] selectors = [_resource, _metric, _range];
+        foreach (var selector in selectors) { toolbar.ColumnDefinitions.Add(new()); toolbar.Children.Add(selector); }
+        void ArrangeToolbar()
+        {
+            var visible = selectors.Where(x => x.Visibility == Visibility.Visible).ToArray();
+            bool wrapResource = _resource.Visibility == Visibility.Visible && visible.Length == 3 && toolbar.ActualWidth < 630;
+            int columns = wrapResource ? 2 : visible.Length;
+            int rows = wrapResource ? 2 : 1;
+            if (toolbar.RowDefinitions.Count != rows)
+            {
+                toolbar.RowDefinitions.Clear();
+                for (int i = 0; i < rows; i++) toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
+            }
+            for (int i = 0; i < selectors.Length; i++) toolbar.ColumnDefinitions[i].Width = new(i < columns ? 1 : 0, GridUnitType.Star);
+            for (int i = 0; i < visible.Length; i++)
+            {
+                Grid.SetRow(visible[i], wrapResource && i > 0 ? 1 : 0);
+                Grid.SetColumn(visible[i], wrapResource ? Math.Max(0, i - 1) : i);
+                Grid.SetColumnSpan(visible[i], wrapResource && i == 0 ? 2 : 1);
+            }
+        }
+        toolbar.SizeChanged += (_, _) => ArrangeToolbar();
+        foreach (var selector in selectors) selector.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => ArrangeToolbar());
+        Grid.SetRow(toolbar, 2); _root.Children.Add(toolbar);
         Ui.Id(toolbar, "DetailToolbar"); Ui.Id(_resource, "DetailResource"); Ui.Id(_metric, "DetailMetric"); Ui.Id(_range, "DetailRange");
         Ui.Id(_quality, "DetailQuality"); Ui.Id(_scroll, "DetailReadings");
         var content = Ui.Stack(12); content.Padding = new(0, 0, 8, 12);

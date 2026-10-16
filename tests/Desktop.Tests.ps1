@@ -225,6 +225,10 @@ Describe 'Published monitoring application' {
                 Resize-TestWindow $details $width 720
                 (Find-AppElement $details DetailSettings).Current.IsOffscreen | Should -BeFalse
                 $rangeBefore = (Find-AppElement $details DetailRange).Current.BoundingRectangle
+                (Find-AppElement $details DetailMetric).Current.BoundingRectangle.Top | Should -Be $rangeBefore.Top
+                if ($width -eq 520) {
+                    (Find-AppElement $details DetailResource).Current.BoundingRectangle.Bottom | Should -BeLessThan $rangeBefore.Top
+                }
                 $readings = Find-AppElement $details DetailReadings
                 $readings.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1,100)
                 Start-Sleep -Milliseconds 200

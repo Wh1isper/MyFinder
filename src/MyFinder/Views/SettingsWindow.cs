@@ -111,7 +111,7 @@ internal sealed class SettingsWindow : Window
                 if (_owner.Preferences.MetricOrder.Contains(id))
                     _owner.Update(_owner.Preferences with { MetricOrder = new[] { id }.Concat(_owner.Preferences.MetricOrder.Where(x => x != id)).ToArray() });
             }, "MoveMetricFirst_" + id);
-            Ui.Name(first, "Move " + MetricName(id) + " first");
+            Ui.Name(first, "Move " + MetricName(id) + " first"); first.HorizontalAlignment = HorizontalAlignment.Right;
             void SyncFirst() => first.IsEnabled = _owner.Preferences.MetricOrder.Contains(id) && _owner.Preferences.MetricOrder.FirstOrDefault() != id;
             SyncFirst(); _synchronize.Add(SyncFirst);
             metrics.Children.Add(Ui.Card(Ui.Columns(row, first)));
@@ -154,8 +154,11 @@ internal sealed class SettingsWindow : Window
         foreach (string id in new[] { "cpu", "memory" })
         {
             var card = Ui.Stack(8); card.Children.Add(Ui.Text(MetricName(id), 16));
-            Toggle(card, "Monitor", () => _owner.Preferences.Monitored.Contains(id), value => Monitor(id, value), "Monitor " + MetricName(id));
-            card.Children.Add(InspectButton("Inspect", id, "InspectResource_" + id, "Inspect " + MetricName(id))); system.Children.Add(Ui.Card(card));
+            var controls = Ui.Stack(4);
+            Toggle(controls, "Monitor", () => _owner.Preferences.Monitored.Contains(id), value => Monitor(id, value), "Monitor " + MetricName(id));
+            var inspect = InspectButton("Inspect", id, "InspectResource_" + id, "Inspect " + MetricName(id));
+            inspect.HorizontalAlignment = HorizontalAlignment.Right; inspect.VerticalAlignment = VerticalAlignment.Center;
+            card.Children.Add(Ui.Columns(controls, inspect)); system.Children.Add(Ui.Card(card));
         }
         var network = Section(form, "Network adapters", "Monitor, compact pin and inspection are independent. Addresses remain hidden until explicitly revealed in details.");
         Toggle(network, "Network rates in bits/s (otherwise bytes/s)", () => _owner.Preferences.NetworkBits, value => _owner.Update(_owner.Preferences with { NetworkBits = value }));
@@ -205,20 +208,23 @@ internal sealed class SettingsWindow : Window
             string label = reading.Resource.Name + " · " + reading.Resource.Facts.GetValueOrDefault("Category", reading.Resource.Kind.ToString());
             var card = Ui.Stack(8);
             card.Children.Add(Ui.Text(reading.Resource.Name, 16)); card.Children.Add(Ui.Muted(reading.Resource.Facts.GetValueOrDefault("Category", reading.Resource.Kind.ToString())));
-            Toggle(card, "Monitor", () => _owner.Preferences.Monitored.Contains(id), value => Monitor(id, value, pin), "Monitor " + label);
+            var controls = Ui.Stack(4);
+            Toggle(controls, "Monitor", () => _owner.Preferences.Monitored.Contains(id), value => Monitor(id, value, pin), "Monitor " + label);
             if (reading.Resource.Kind == ResourceKind.Device)
             {
                 var notice = Ui.Muted("");
-                Toggle(card, "Include in comparison", () => _owner.Preferences.StorageComparison.Contains(id), value =>
+                Toggle(controls, "Include in comparison", () => _owner.Preferences.StorageComparison.Contains(id), value =>
                 {
                     var selection = _owner.Preferences.StorageComparison.ToHashSet();
                     if (value && selection.Count >= 4 && !selection.Contains(id)) { notice.Text = "Choose at most four devices. Remove one before adding another."; foreach (var sync in _synchronize) sync(); return; }
                     if (value) selection.Add(id); else selection.Remove(id);
                     notice.Text = ""; _owner.Update(_owner.Preferences with { StorageComparison = selection.ToArray() });
                 }, "Compare " + label);
-                card.Children.Add(notice);
+                controls.Children.Add(notice);
             }
-            card.Children.Add(InspectButton("Inspect", id, "InspectResource_" + id, "Inspect " + label));
+            var inspect = InspectButton("Inspect", id, "InspectResource_" + id, "Inspect " + label);
+            inspect.HorizontalAlignment = HorizontalAlignment.Right; inspect.VerticalAlignment = VerticalAlignment.Center;
+            card.Children.Add(Ui.Columns(controls, inspect));
             form.Children.Add(Ui.Card(card));
         }
     }
