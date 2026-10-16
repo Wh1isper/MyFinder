@@ -28,6 +28,12 @@ internal sealed class PlainBackdrop(nint handle) : SystemBackdrop
         _brush = _compositor.CreateColorBrush(_color);
         target.SystemBackdrop = _brush;
     }
+    protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop target, XamlRoot root)
+    {
+        // AppController supplies theme and policy through SetColor for this color-only brush.
+        // The base material-configuration path rejects the target during theme changes after
+        // adaptive navigation. This backdrop does not use that default material configuration.
+    }
     private void ConfigureHost()
     {
         var margins = new Margins();

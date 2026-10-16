@@ -37,6 +37,8 @@ jobs:
         run: ./scripts/package.ps1
       - name: Run artifact, desktop, signing, and installation tests
         run: ./scripts/test.ps1 -Install
+      - name: Measure short monitored runtime
+        run: ./scripts/measure-runtime.ps1 -SecondsPerPhase 60 -OutputPath TestResults/runtime.json
       - name: Retain test reports
         if: always()
         uses: actions/upload-artifact@v7

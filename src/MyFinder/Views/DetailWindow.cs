@@ -15,52 +15,109 @@ internal sealed class DetailWindow : Window
     private readonly Grid _root = new();
     private readonly ComboBox _resource = new() { Header = "Inspect resource", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _metric = new() { Header = "Trend", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly ComboBox _range = new() { Header = "Recent range", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly TextBlock _heading = Ui.Text("", 24), _current = Ui.Text("", 18), _facts = Ui.Text(""), _quality = Ui.Text("");
+    private readonly ComboBox _range = new() { Header = "Recent range (min)", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock _heading = Ui.Text("", 22), _quality = Ui.Muted("");
+    private readonly ReadingSummary _summary = new();
+    private readonly FactTable _observations = new(), _hardware = new();
+    private readonly ListView _rail = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = false };
+    private readonly ScrollViewer _scroll = new() { HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly Grid _body = new() { ColumnSpacing = 16 };
+    private readonly StackPanel _single = Ui.Stack(16);
+    private readonly Border _compositionCard;
+    private readonly Button _manageResources;
+    private readonly TextBlock _notice = Ui.Muted("");
     private readonly StackPanel _composition = Ui.Stack();
     private readonly TrendChart _chart = new();
     private readonly StorageView _storageView;
     private readonly TextBlock _addresses = Ui.Text("");
+    private readonly TextBlock _privacyStatus = Ui.Muted("Addresses are hidden.");
+    private readonly StackPanel _privacyControls = Ui.Stack(8);
     private readonly Button _reveal = Ui.Button("Reveal addresses for 30 seconds", () => { }, "RevealAddresses");
     private readonly DispatcherTimer _privacy = new() { Interval = TimeSpan.FromSeconds(30) };
     private Task<string>? _addressWork;
     private int _revealGeneration;
     private string _selected = "cpu", _metricKey = "Utilization", _resourceSignature = "", _metricSignature = "";
     private int _rangeMinutes;
-    private bool _updating;
+    private bool _updating, _revealing;
     public bool IsOpen { get; private set; }
     public DetailWindow(AppController owner)
     {
         _owner = owner; _rangeMinutes = owner.Preferences.RangeMinutes;
-        _storageView = new(owner.Inspect);
+        _storageView = new(owner.Inspect, owner.ShowResourceSettings);
+        _manageResources = Ui.Button("Manage resources", owner.ShowResourceSettings, "ManageResources");
+        _manageResources.HorizontalAlignment = HorizontalAlignment.Left;
         Title = "MyFinder - Details";
-        var content = Ui.Stack(14); content.Padding = new(22);
-        content.Children.Add(_heading);
-        var controls = new Grid { ColumnSpacing = 10 };
-        controls.ColumnDefinitions.Add(new() { Width = new(2, GridUnitType.Star) });
-        controls.ColumnDefinitions.Add(new()); controls.ColumnDefinitions.Add(new());
-        controls.Children.Add(_resource); Grid.SetColumn(_metric, 1); controls.Children.Add(_metric); Grid.SetColumn(_range, 2); controls.Children.Add(_range);
-        for (int i = 0; i < 3; i++) controls.RowDefinitions.Add(new() { Height = GridLength.Auto });
-        controls.SizeChanged += (_, e) =>
+        _root.Padding = new(16, 10, 16, 16); _root.RowSpacing = 8;
+        _root.RowDefinitions.Add(new() { Height = GridLength.Auto }); _root.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new() { Height = GridLength.Auto }); _root.RowDefinitions.Add(new());
+        var header = new Grid { ColumnSpacing = 8 };
+        header.ColumnDefinitions.Add(new()); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        _heading.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold; _heading.VerticalAlignment = VerticalAlignment.Center; Ui.Id(_heading, "DetailHeading");
+        _heading.TextWrapping = TextWrapping.NoWrap; _heading.TextTrimming = TextTrimming.CharacterEllipsis;
+        header.Children.Add(_heading);
+        var settings = Ui.IconButton("Settings", "\uE713", owner.ShowSettings, "DetailSettings"); Grid.SetColumn(settings, 1); header.Children.Add(settings);
+        _root.Children.Add(header); Grid.SetRow(_quality, 1); _root.Children.Add(_quality);
+        _body.ColumnDefinitions.Add(new() { Width = new(210) }); _body.ColumnDefinitions.Add(new());
+        Ui.Id(_rail, "ResourceRail"); Ui.Name(_rail, "Inspect a resource; monitoring and compact pins stay unchanged");
+        _body.Children.Add(_rail); Grid.SetColumn(_scroll, 1); _body.Children.Add(_scroll); Grid.SetRow(_body, 3); _root.Children.Add(_body);
+        var toolbar = new Grid { ColumnSpacing = 12, RowSpacing = 8 };
+        FrameworkElement[] selectors = [_resource, _metric, _range];
+        foreach (var selector in selectors) { toolbar.ColumnDefinitions.Add(new()); toolbar.Children.Add(selector); }
+        void ArrangeToolbar()
         {
-            bool narrow = e.NewSize.Width < 560;
-            for (int i = 0; i < 3; i++)
+            var visible = selectors.Where(x => x.Visibility == Visibility.Visible).ToArray();
+            bool wrapResource = _resource.Visibility == Visibility.Visible && visible.Length == 3 && toolbar.ActualWidth < 630;
+            int columns = wrapResource ? 2 : visible.Length;
+            int rows = wrapResource ? 2 : 1;
+            if (toolbar.RowDefinitions.Count != rows)
             {
-                controls.ColumnDefinitions[i].Width = narrow && i > 0 ? new(0) : new(i == 0 ? 2 : 1, GridUnitType.Star);
-                Grid.SetColumn((FrameworkElement)controls.Children[i], narrow ? 0 : i);
-                Grid.SetRow((FrameworkElement)controls.Children[i], narrow ? i : 0);
+                toolbar.RowDefinitions.Clear();
+                for (int i = 0; i < rows; i++) toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
             }
+            for (int i = 0; i < selectors.Length; i++) toolbar.ColumnDefinitions[i].Width = new(i < columns ? 1 : 0, GridUnitType.Star);
+            for (int i = 0; i < visible.Length; i++)
+            {
+                Grid.SetRow(visible[i], wrapResource && i > 0 ? 1 : 0);
+                Grid.SetColumn(visible[i], wrapResource ? Math.Max(0, i - 1) : i);
+                Grid.SetColumnSpan(visible[i], wrapResource && i == 0 ? 2 : 1);
+            }
+        }
+        toolbar.SizeChanged += (_, _) => ArrangeToolbar();
+        foreach (var selector in selectors) selector.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => ArrangeToolbar());
+        Grid.SetRow(toolbar, 2); _root.Children.Add(toolbar);
+        Ui.Id(toolbar, "DetailToolbar"); Ui.Id(_resource, "DetailResource"); Ui.Id(_metric, "DetailMetric"); Ui.Id(_range, "DetailRange");
+        Ui.Id(_quality, "DetailQuality"); Ui.Id(_scroll, "DetailReadings");
+        var content = Ui.Stack(12); content.Padding = new(0, 0, 8, 12);
+        content.Children.Add(_notice); content.Children.Add(_manageResources); content.Children.Add(_storageView);
+        _single.Children.Add(_summary);
+        var trend = Ui.Stack(12); trend.Children.Add(Ui.Heading("Recent history")); trend.Children.Add(_chart); _single.Children.Add(Ui.Card(trend));
+        _compositionCard = Ui.Card(_composition); _single.Children.Add(_compositionCard);
+        var observations = Ui.Stack(14); observations.Children.Add(Ui.Heading("Current observations")); observations.Children.Add(_observations);
+        var hardware = Ui.Stack(14); hardware.Children.Add(Ui.Heading("Resource facts")); hardware.Children.Add(_hardware);
+        _single.Children.Add(Ui.Columns(Ui.Card(observations), Ui.Card(hardware)));
+        _reveal.HorizontalAlignment = HorizontalAlignment.Left;
+        Ui.Id(_privacyStatus, "AddressPrivacyStatus"); Ui.Id(_addresses, "RevealedAddresses");
+        _privacyControls.Children.Add(Ui.Heading("Network addresses")); _privacyControls.Children.Add(_privacyStatus);
+        _privacyControls.Children.Add(_reveal); _privacyControls.Children.Add(_addresses);
+        _single.Children.Add(_privacyControls); content.Children.Add(_single);
+        _scroll.Content = content;
+        _root.SizeChanged += (_, e) =>
+        {
+            bool wide = e.NewSize.Width >= 940;
+            _body.ColumnDefinitions[0].Width = new(wide ? 210 : 0);
+            _rail.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+            _resource.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
         };
-        content.Children.Add(Ui.Button("Storage overview", () => SelectStorageView(false), "StorageOverview"));
-        content.Children.Add(Ui.Button("Compare selected storage devices", () => SelectStorageView(true), "StorageComparison"));
-        content.Children.Add(controls); content.Children.Add(_quality); content.Children.Add(_storageView); content.Children.Add(_current); content.Children.Add(_chart); content.Children.Add(_composition);
-        content.Children.Add(Ui.Text("Resource facts and current observations", 18)); content.Children.Add(_facts);
-        content.Children.Add(_reveal); content.Children.Add(_addresses);
+        _rail.SelectionChanged += (_, _) =>
+        {
+            if (!_updating && _rail.SelectedItem is ListViewItem item && item.Tag is string id) SelectResource(id);
+        };
         _reveal.Click += async (_, _) =>
         {
-            if (_addresses.Text.Length > 0) { HideAddresses(); return; }
-            if (_addressWork is { IsCompleted: false }) return;
+            if (_revealing || _addresses.Text.Length > 0) { HideAddresses(); return; }
+            if (_addressWork is { IsCompleted: false }) { _privacyStatus.Text = "The previous address query is finishing. Try again shortly."; return; }
             int generation = ++_revealGeneration; string id = _selected;
+            _revealing = true; SetRevealLabel("Cancel address reveal"); _privacyStatus.Text = "Loading addresses…";
             _addressWork = Task.Run(() =>
             {
                 try { return NetworkInterfaces.RevealAddresses(id); }
@@ -68,14 +125,13 @@ internal sealed class DetailWindow : Window
             });
             string text = await _addressWork;
             if (!IsOpen || generation != _revealGeneration || id != _selected) return;
-            _addresses.Text = text; _reveal.Content = "Hide addresses"; _privacy.Start();
-            _addressWork = null;
+            _addresses.Text = text; _revealing = false; SetRevealLabel("Hide addresses");
+            _privacyStatus.Text = "Visible for 30 seconds, or until you leave this resource."; _privacy.Start(); _addressWork = null;
         };
         _privacy.Tick += (_, _) => HideAddresses();
-        content.Children.Add(Ui.Button("Settings", owner.ShowSettings, "DetailSettings"));
-        content.Children.Add(Ui.Button("Close details", Dismiss, "CloseDetails"));
-        _root.Children.Add(new ScrollViewer { Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }); Content = _root;
-        AppWindow.Resize(new(820, 740));
+        Content = _root;
+        double dpi = Desktop.NativeDesktop.Dpi(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        AppWindow.Resize(new((int)(760 * dpi), (int)(640 * dpi)));
         ((OverlappedPresenter)AppWindow.Presenter).IsAlwaysOnTop = true;
         AppWindow.Closing += (_, e) => { e.Cancel = !_owner.IsExiting; if (e.Cancel) Dismiss(); };
         Activated += (_, e) => { if (!_owner.IsExiting && IsOpen && e.WindowActivationState == WindowActivationState.Deactivated) Dismiss(); };
@@ -83,7 +139,7 @@ internal sealed class DetailWindow : Window
         _resource.SelectionChanged += (_, _) =>
         {
             if (_updating || _resource.SelectedItem is not ComboBoxItem item || item.Tag is not string id) return;
-            HideAddresses(); _selected = id; _metricKey = ""; _metricSignature = ""; _chart.ResetInspection(); Refresh();
+            SelectResource(id);
         };
         _metric.SelectionChanged += (_, _) => { if (!_updating && _metric.SelectedItem is string key) { _metricKey = key; _chart.ResetInspection(); Refresh(); } };
         _range.SelectionChanged += (_, _) => { if (!_updating && _range.SelectedItem is int minutes) { _rangeMinutes = minutes; _chart.ResetInspection(); Refresh(); } };
@@ -97,62 +153,85 @@ internal sealed class DetailWindow : Window
         _selected = id; _metricKey = ""; _metricSignature = ""; _rangeMinutes = _owner.Preferences.RangeMinutes; _chart.ResetInspection();
         IsOpen = true; _owner.PositionDetails(this); Refresh(); AppWindow.Show(); Activate();
     }
-    private void SelectStorageView(bool compare)
+    private void SelectResource(string id)
     {
-        HideAddresses(); _selected = compare ? "storage:comparison" : "storage:overview";
-        _metricKey = "Transfers"; _metricSignature = ""; Refresh();
+        HideAddresses(); _selected = id; _metricKey = ""; _metricSignature = "";
+        _chart.ResetInspection(); _scroll.ChangeView(null, 0, null); Refresh();
     }
-    private void HideAddresses() { _revealGeneration++; _privacy.Stop(); _addresses.Text = ""; _reveal.Content = "Reveal addresses for 30 seconds"; if (_addressWork?.IsCompleted == true) _addressWork = null; }
+    private void SetRevealLabel(string label) { _reveal.Content = label; Ui.Name(_reveal, label); }
+    private void HideAddresses()
+    {
+        _revealGeneration++; _privacy.Stop(); _revealing = false; _addresses.Text = "";
+        SetRevealLabel("Reveal addresses for 30 seconds"); _privacyStatus.Text = "Addresses are hidden.";
+        if (_addressWork?.IsCompleted == true) _addressWork = null;
+    }
     public void Dismiss() { HideAddresses(); IsOpen = false; AppWindow.Hide(); }
     public void Refresh()
     {
         if (!IsOpen) return;
         var readings = _owner.Readings;
-        string signature = string.Join(";", readings.Select(x => x.Resource.Id + x.Resource.Name));
+        string missingSelection = _selected is "storage:overview" or "storage:comparison" || readings.Any(x => x.Resource.Id == _selected) ? "" : _selected;
+        string signature = missingSelection + ":" + string.Join(";", readings.Select(x => x.Resource.Id + x.Resource.Name)) + ":" + string.Join(";", _owner.Preferences.Monitored);
         _updating = true;
         try
         {
             if (_resourceSignature != signature)
             {
                 _resourceSignature = signature; _resource.Items.Clear();
+                foreach (var reading in readings.OrderBy(x => x.Resource.Kind is ResourceKind.Cpu or ResourceKind.Memory ? 0 : _owner.Preferences.Monitored.Contains(x.Resource.Id) ? 1 : 2).ThenBy(x => x.Resource.Kind).ThenBy(x => x.Resource.Name))
+                    _resource.Items.Add(new ComboBoxItem { Content = reading.Resource.Name, Tag = reading.Resource.Id });
                 _resource.Items.Add(new ComboBoxItem { Content = "Storage overview", Tag = "storage:overview" });
                 _resource.Items.Add(new ComboBoxItem { Content = "Storage comparison", Tag = "storage:comparison" });
-                foreach (var reading in readings) _resource.Items.Add(new ComboBoxItem { Content = reading.Resource.Name, Tag = reading.Resource.Id });
+                if (!_resource.Items.OfType<ComboBoxItem>().Any(x => (string)x.Tag == _selected))
+                    _resource.Items.Add(new ComboBoxItem { Content = _selected + " (unavailable)", Tag = _selected });
+                _rail.Items.Clear();
+                foreach (var choice in _resource.Items.OfType<ComboBoxItem>())
+                {
+                    var label = Ui.Text((string)choice.Content); label.IsTextSelectionEnabled = false;
+                    var item = new ListViewItem { Content = label, Tag = choice.Tag, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new(12) };
+                    Ui.Id(item, "InspectRail_" + (string)choice.Tag); _rail.Items.Add(item);
+                }
             }
             _resource.SelectedItem = _resource.Items.OfType<ComboBoxItem>().FirstOrDefault(x => (string)x.Tag == _selected);
+            _rail.SelectedItem = _rail.Items.OfType<ListViewItem>().FirstOrDefault(x => (string)x.Tag == _selected);
             var choices = new[] { 1, 5, 15, 30, 60 }.Where(x => x <= _owner.Preferences.RetentionMinutes).ToArray();
             if (!_range.Items.Cast<int>().SequenceEqual(choices)) { _range.Items.Clear(); foreach (int value in choices) _range.Items.Add(value); }
             _rangeMinutes = Math.Min(_rangeMinutes, _owner.Preferences.RetentionMinutes); _range.SelectedItem = _rangeMinutes;
             bool multiple = _selected is "storage:overview" or "storage:comparison";
             _storageView.Visibility = multiple ? Visibility.Visible : Visibility.Collapsed;
-            _chart.Visibility = _composition.Visibility = multiple ? Visibility.Collapsed : Visibility.Visible;
-            _metric.Visibility = Visibility.Visible;
+            _single.Visibility = multiple ? Visibility.Collapsed : Visibility.Visible;
+            _metric.Visibility = Visibility.Visible; _range.Visibility = Visibility.Visible;
+            _notice.Visibility = _manageResources.Visibility = Visibility.Collapsed;
             if (multiple)
             {
                 bool compare = _selected == "storage:comparison";
-                _heading.Text = compare ? "Storage comparison" : "Storage overview";
-                _facts.Text = _current.Text = ""; _reveal.Visibility = Visibility.Collapsed;
-                _quality.Text = _owner.Session.StorageStatus + $" · {_owner.Session.StoragePending} pending operations";
+                _heading.Text = compare ? "Storage comparison" : "Storage overview"; ToolTipService.SetToolTip(_heading, _heading.Text);
+                _privacyControls.Visibility = Visibility.Collapsed;
+                _quality.Text = compare ? "Each device retains its own readings and quality." : "Current capacity and activity · Monitored resources only";
+                _range.Visibility = compare && _owner.Preferences.StorageComparison.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
                 string[] comparisonKeys = ["Transfers", "Activity", "Response time"];
                 if (_metricSignature != _selected)
                 {
                     _metricSignature = _selected; _metric.Items.Clear(); foreach (string key in comparisonKeys) _metric.Items.Add(key);
                     if (!comparisonKeys.Contains(_metricKey)) _metricKey = "Transfers";
                 }
-                _metric.SelectedItem = _metricKey; _metric.Visibility = compare ? Visibility.Visible : Visibility.Collapsed;
+                _metric.SelectedItem = _metricKey; _metric.Visibility = compare && _owner.Preferences.StorageComparison.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
                 _storageView.Update(readings, _owner.Preferences, _owner.Session.History, _rangeMinutes, compare, _metricKey);
                 return;
             }
             var current = readings.FirstOrDefault(x => x.Resource.Id == _selected);
             if (current is null)
             {
-                _heading.Text = _selected; _quality.Text = "Waiting for this resource. Its identity remains selected.";
-                _current.Text = _facts.Text = ""; _chart.Visibility = _composition.Visibility = _reveal.Visibility = Visibility.Collapsed; return;
+                _heading.Text = _selected; ToolTipService.SetToolTip(_heading, _selected);
+                _quality.Text = "Resource unavailable · Selection preserved";
+                _notice.Text = "Waiting for this resource to become available. You can check its monitoring selection in Resources.";
+                _notice.Visibility = _manageResources.Visibility = Visibility.Visible;
+                _metric.Visibility = _range.Visibility = _single.Visibility = Visibility.Collapsed; return;
             }
-            _heading.Text = current.Resource.Name;
+            _heading.Text = current.Resource.Name; ToolTipService.SetToolTip(_heading, current.Resource.Name);
             bool network = current.Resource.Kind == ResourceKind.Network;
             bool storage = current.Resource.Kind is ResourceKind.Volume or ResourceKind.Device;
-            _reveal.Visibility = network ? Visibility.Visible : Visibility.Collapsed;
+            _privacyControls.Visibility = network ? Visibility.Visible : Visibility.Collapsed;
             var keys = TrendMetrics(current);
             string metricSignature = _selected + string.Join(";", keys);
             if (_metricSignature != metricSignature)
@@ -160,20 +239,22 @@ internal sealed class DetailWindow : Window
                 _metricSignature = metricSignature; _metric.Items.Clear(); foreach (string key in keys) _metric.Items.Add(key);
                 if (!keys.Contains(_metricKey)) _metricKey = keys.FirstOrDefault() ?? "Utilization";
             }
-            _metric.SelectedItem = _metricKey;
+            _metric.SelectedItem = _metricKey; _metric.Visibility = keys.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
             string[] series = _metricKey == "Traffic" ? ["Receive", "Send"] : _metricKey == "Transfers" ? ["Read", "Write"] : [_metricKey];
             var metric = current.Observation.Get(series[0]);
-            _quality.Text = $"Current snapshot {current.Observation.Time:T} · {metric.Quality}" + (metric.Reason is null ? "" : $" — {metric.Reason}") +
-                (_owner.Session.History.BudgetLimited ? " · History shortened by the memory budget" : "");
-            _current.Text = string.Join("   |   ", series.Select(key => $"{key}: {ValueFormat.Metric(current.Observation.Get(key), _owner.Preferences, storage)}"));
+            _quality.Text = $"Current snapshot {current.Observation.Time:T} · {Ui.QualityLabel(metric.Quality)}";
+            _notice.Text = string.Join("\n", new[] { metric.Reason, _owner.Session.History.BudgetLimited ? "History shortened by the memory budget." : null }.Where(x => !string.IsNullOrEmpty(x)));
+            _notice.Visibility = _notice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _manageResources.Visibility = metric.Quality == Quality.NotMonitored ? Visibility.Visible : Visibility.Collapsed;
+            _summary.Update(current, _owner.Preferences);
             var samples = _owner.Session.History.Read(_selected, ObservationClock.Elapsed - _rangeMinutes * 60);
             _chart.Update(samples, series, _owner.Preferences, _rangeMinutes, storage,
                 maximum: current.Resource.Kind == ResourceKind.Memory ? current.Observation.Get(_metricKey == "Committed" ? "Commit limit" : "Total").Value
                     : current.Resource.Kind == ResourceKind.Volume && _metricKey != "Utilization" ? current.Observation.Get("Total").Value : null,
                 maximumGap: current.Resource.Kind == ResourceKind.Volume ? _owner.Preferences.CapacitySeconds * 3 : null);
-            _facts.Text = string.Join("\n", current.Observation.Values.Where(x => !x.Key.StartsWith("Logical ")).Select(x =>
-                $"{x.Key}: {(network && x.Value.Unit == Unit.Bytes && x.Value.Value is double bytes ? ValueFormat.Size(bytes, false) : ValueFormat.Metric(x.Value, _owner.Preferences, storage))}" + (x.Value.Reason is null ? "" : " — " + x.Value.Reason))) +
-                "\n\n" + string.Join("\n", current.Resource.Facts.Select(x => $"{x.Key}: {x.Value}")) + "\n\nIdentity: " + current.Resource.Id;
+            _observations.Update(current.Observation.Values.Where(x => !x.Key.StartsWith("Logical ")).Select(x =>
+                new KeyValuePair<string, string>(x.Key, (network && x.Value.Unit == Unit.Bytes && x.Value.Value is double bytes ? ValueFormat.Size(bytes, false) : ValueFormat.Metric(x.Value, _owner.Preferences, storage)) + (x.Value.Reason is null ? "" : " — " + x.Value.Reason))));
+            _hardware.Update(current.Resource.Facts.Append(new KeyValuePair<string, string>("Identity", current.Resource.Id)));
             Composition(current);
         }
         finally { _updating = false; }
@@ -190,11 +271,14 @@ internal sealed class DetailWindow : Window
     private void Composition(Reading reading)
     {
         _composition.Children.Clear();
+        _compositionCard.Visibility = Visibility.Collapsed;
         if (reading.Resource.Kind is not (ResourceKind.Memory or ResourceKind.Volume)) return;
         bool storage = reading.Resource.Kind == ResourceKind.Volume;
         string usedKey = storage ? "Used / reserved" : "In use", freeKey = storage ? "Free" : "Available";
         var used = reading.Observation.Get(usedKey); var total = reading.Observation.Get("Total"); var free = reading.Observation.Get(freeKey);
         if (used.Value is not double u || total.Value is not double t || free.Value is not double f || t <= 0 || u < 0 || f < 0 || Math.Abs(u + f - t) > 1) return;
+        _compositionCard.Visibility = Visibility.Visible;
+        _composition.Children.Add(Ui.Heading(storage ? "Volume capacity" : "Physical memory"));
         _composition.Children.Add(Ui.Text($"{(storage ? "Volume capacity" : "Physical memory")} · {usedKey} {ValueFormat.Metric(used, _owner.Preferences, storage)} / {freeKey} {ValueFormat.Metric(free, _owner.Preferences, storage)} / Total {ValueFormat.Metric(total, _owner.Preferences, storage)}"));
         if (_owner.Preferences.Composition == CompositionStyle.Bar)
         {

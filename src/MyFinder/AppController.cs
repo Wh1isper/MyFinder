@@ -166,8 +166,13 @@ internal sealed class AppController
     public void ShowSettings()
     {
         if (_exiting) return;
+        _details?.Dismiss();
         _settings ??= new(this);
         _settings.Open();
+    }
+    public void ShowResourceSettings()
+    {
+        ShowSettings(); _settings?.SelectPage("Resources");
     }
     private void ShowTrayMenu()
     {
@@ -188,6 +193,11 @@ internal sealed class AppController
         Color system = _ui.GetColorValue(UIColorType.Background);
         bool dark = Preferences.Theme == Appearance.Dark || Preferences.Theme == Appearance.System && system.R < 128;
         Color color = contrast ? system : dark ? Color.FromArgb(255, 28, 32, 39) : Color.FromArgb(255, 247, 249, 252);
+        var titleBar = window.AppWindow.TitleBar;
+        Color? titleBackground = contrast ? null : color;
+        Color? titleForeground = contrast ? null : dark ? Color.FromArgb(255, 245, 245, 245) : Color.FromArgb(255, 32, 32, 32);
+        titleBar.BackgroundColor = titleBar.InactiveBackgroundColor = titleBar.ButtonBackgroundColor = titleBar.ButtonInactiveBackgroundColor = titleBackground;
+        titleBar.ForegroundColor = titleBar.ButtonForegroundColor = titleBar.InactiveForegroundColor = titleBar.ButtonInactiveForegroundColor = titleForeground;
         bool allowed = !solid && !contrast && _ui.AdvancedEffectsEnabled && PowerManager.EnergySaverStatus != EnergySaverStatus.On;
         color.A = allowed ? (byte)Math.Round(Preferences.BackgroundOpacity * 255) : (byte)255;
         if (!solid) AppearanceStatus = allowed ? $"Background opacity: {color.A / 255d:P0}; foreground remains opaque" : "Solid background: system transparency, high contrast or energy-saver policy";
@@ -214,9 +224,11 @@ internal sealed class AppController
         var display = Presentation.ChooseDisplay(Displays, Preferences.PreferredDisplay);
         var size = window.AppWindow.Size;
         var panel = NativeDesktop.Bounds(_panel.Handle);
-        int x = Math.Clamp(panel.X, display.Work.X, Math.Max(display.Work.X, display.Work.Right - size.Width));
-        int y = panel.Bottom + 8;
-        if (y + size.Height > display.Work.Bottom) y = panel.Y - size.Height - 8;
+        int anchorX = panel.X + panel.Width / 2 < display.Work.X + display.Work.Width / 2 ? panel.X : panel.Right - size.Width;
+        int x = Math.Clamp(anchorX, display.Work.X, Math.Max(display.Work.X, display.Work.Right - size.Width));
+        int gap = (int)Math.Round(8 * NativeDesktop.Dpi(_panel.Handle));
+        int y = panel.Bottom + gap;
+        if (y + size.Height > display.Work.Bottom) y = panel.Y - size.Height - gap;
         y = Math.Clamp(y, display.Work.Y, Math.Max(display.Work.Y, display.Work.Bottom - size.Height));
         window.AppWindow.MoveAndResize(new(x, y, Math.Min(size.Width, display.Work.Width), Math.Min(size.Height, display.Work.Height)));
     }
