@@ -13,6 +13,8 @@ public sealed partial class MainWindow : Window
 {
     private readonly AppController _owner;
     private readonly Dictionary<string, TextBlock> _readings = [];
+    private readonly Dictionary<string, TextBlock> _labels = [];
+    private readonly Dictionary<string, ProgressBar> _levels = [];
     private StackPanel _items = null!;
     internal nint Handle { get; }
     internal Grid Root => Host;
@@ -30,12 +32,14 @@ public sealed partial class MainWindow : Window
     internal void Configure()
     {
         var preferences = _owner.Preferences;
-        Host.Children.Clear(); _readings.Clear();
-        _items = Ui.Stack(4);
+        Host.Children.Clear(); _readings.Clear(); _labels.Clear(); _levels.Clear();
+        _items = Ui.Stack(preferences.Style == PanelStyle.Capsules ? 4 : 0);
         _items.Orientation = preferences.Orientation == PanelOrientation.Horizontal ? Orientation.Horizontal : Orientation.Vertical;
-        _items.Padding = new(6);
-        var move = Ui.Button(preferences.Locked ? "Locked" : "Move", () => { }, "MovePanel");
-        move.FontSize = 11; move.Padding = new(6); move.IsEnabled = !preferences.Locked;
+        _items.Padding = new(4);
+        var move = Ui.IconButton(preferences.Locked ? "Position locked" : "Move panel", preferences.Locked ? "\uE72E" : "\uE7C2", () => { }, "MovePanel");
+        move.Style = (Style)Application.Current.Resources["PanelMetricStyle"];
+        move.MinWidth = 24; move.Width = 24; move.Padding = new(4);
+        move.VerticalAlignment = VerticalAlignment.Center; move.IsEnabled = !preferences.Locked;
         move.AddHandler(UIElement.PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler((_, e) =>
         {
             if (!preferences.Locked && e.GetCurrentPoint(move).Properties.IsLeftButtonPressed) { NativeDesktop.StartDrag(Handle); e.Handled = true; }
@@ -43,23 +47,37 @@ public sealed partial class MainWindow : Window
         _items.Children.Add(move);
         foreach (string key in preferences.MetricOrder)
         {
-            var text = Ui.Text("Warming up", Math.Max(12, 16 * preferences.Scale));
+            var text = Ui.Text("—", Math.Max(12, (key is "network" or "storage" ? 13 : 16) * preferences.Scale));
+            text.TextWrapping = TextWrapping.NoWrap; text.TextTrimming = TextTrimming.CharacterEllipsis;
+            text.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             text.IsTextSelectionEnabled = false;
             var stack = Ui.Stack(2);
-            if (preferences.Style != PanelStyle.Minimal) stack.Children.Add(Ui.Text(key.ToUpperInvariant(), 10 * preferences.Scale));
+            var label = Ui.Muted(key switch { "memory" => "MEM", "network" => "NET", "storage" => "DISK", _ => "CPU" }, Math.Max(12, 12 * preferences.Scale));
+            label.IsTextSelectionEnabled = false; label.TextWrapping = TextWrapping.NoWrap; label.TextTrimming = TextTrimming.CharacterEllipsis;
+            _labels[key] = label;
+            // Short text labels are clearer at this scale than ambiguous hardware glyphs.
+            stack.Children.Add(label);
             stack.Children.Add(text);
+            if (preferences.Style != PanelStyle.Minimal && key is "cpu" or "memory")
+            {
+                var level = new ProgressBar { Minimum = 0, Maximum = 100, Height = 2, IsTabStop = false };
+                _levels[key] = level; stack.Children.Add(level);
+            }
             var button = new Button
             {
                 Content = stack, Padding = new(8 * preferences.Scale, 4 * preferences.Scale, 8 * preferences.Scale, 4 * preferences.Scale),
-                Width = (key is "network" or "storage" ? 184 : preferences.Style == PanelStyle.Minimal ? 104 : 126) * preferences.Scale,
-                CornerRadius = new(preferences.Style == PanelStyle.Capsules ? 18 : 5), HorizontalAlignment = HorizontalAlignment.Stretch
+                Style = (Style)Application.Current.Resources[preferences.Style == PanelStyle.Capsules ? "DefaultButtonStyle" : "PanelMetricStyle"],
+                Width = (key is "network" or "storage" ? 136 : 88) * preferences.Scale,
+                CornerRadius = new(preferences.Style == PanelStyle.Capsules ? 8 : 4), HorizontalAlignment = HorizontalAlignment.Stretch
             };
             button.Click += (_, _) => _owner.Inspect(_owner.ResourceForMetric(key));
             AutomationProperties.SetAutomationId(button, "Inspect_" + key);
             Ui.Name(button, "Inspect " + key);
             _readings[key] = text; _items.Children.Add(button);
         }
-        var settings = Ui.Button("Settings", _owner.ShowSettings, "OpenSettings"); settings.FontSize = 11; settings.Padding = new(6); _items.Children.Add(settings);
+        var settings = Ui.IconButton("Settings", "\uE713", _owner.ShowSettings, "OpenSettings");
+        settings.Style = (Style)Application.Current.Resources["PanelMetricStyle"]; settings.Width = 32; settings.Padding = new(6);
+        settings.VerticalAlignment = VerticalAlignment.Center; _items.Children.Add(settings);
         Host.Children.Add(new ScrollViewer { Content = _items, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Enabled });
         _owner.ApplyAppearance(this, Host, false);
@@ -80,7 +98,15 @@ public sealed partial class MainWindow : Window
                 : reading.Resource.Kind == ResourceKind.Volume ? $"Used {ValueFormat.Metric(reading.Observation.Get("Utilization"), _owner.Preferences, true)}\n{ValueFormat.Metric(reading.Observation.Get("Used / reserved"), _owner.Preferences, true)}"
                 : reading.Resource.Kind == ResourceKind.Device ? $"R {ValueFormat.Metric(reading.Observation.Get("Read"), _owner.Preferences, true)}\nW {ValueFormat.Metric(reading.Observation.Get("Write"), _owner.Preferences, true)}"
                 : ValueFormat.Metric(reading.Observation.Get("Utilization", Unit.Percent), _owner.Preferences);
+            // Stable labels keep the strip still; the full monitored identity remains in the tooltip and details.
+            if (_levels.TryGetValue(pair.Key, out var level))
+            {
+                var value = reading?.Observation.Get("Utilization");
+                level.Opacity = value?.Value is null ? 0 : 1;
+                level.Value = value?.Value ?? 0;
+            }
             ToolTipService.SetToolTip(pair.Value, reading is null ? "Choose a resource in Settings." : $"{reading.Resource.Name}\n{reading.Observation.Time:T}\n{reading.Observation.Get(reading.Resource.Kind == ResourceKind.Network ? "Receive" : "Utilization").Reason}");
+            ToolTipService.SetToolTip(_labels[pair.Key], reading?.Resource.Name ?? "Choose a resource in Settings.");
         }
     }
 }

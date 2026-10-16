@@ -68,14 +68,33 @@ try {
     $settings = Wait-MeasurementWindow $process 'MyFinder - Settings'
     $panel = Wait-MeasurementWindow $process MyFinder
     Start-Sleep -Seconds 5
-    Invoke-MeasurementButton $settings CloseSettings
+    $settings.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+    Start-Sleep -Milliseconds 300
     $closed = Measure-Phase $process 'Panel visible, details closed' $SecondsPerPhase
     Invoke-MeasurementButton $panel Inspect_cpu
     $details = Wait-MeasurementWindow $process 'MyFinder - Details'
     $open = Measure-Phase $process 'CPU details open' $SecondsPerPhase
-    Invoke-MeasurementButton $details CloseDetails
+    $details.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+    Start-Sleep -Milliseconds 300
     Invoke-MeasurementButton $panel OpenSettings
     $settings = Wait-MeasurementWindow $process 'MyFinder - Settings'
+    $statusCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'SettingsPage_Status')
+    $statusPage = $settings.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $statusCondition)
+    if (-not $statusPage) {
+        Invoke-MeasurementButton $settings TogglePaneButton
+        $statusPage = $settings.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $statusCondition)
+    }
+    if (-not $statusPage) {
+        $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)))
+        foreach ($popup in $windows) {
+            $statusPage = $popup.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $statusCondition)
+            if ($statusPage) { break }
+        }
+    }
+    if (-not $statusPage) { throw 'Measurement Status page unavailable.' }
+    $statusPage.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    Start-Sleep -Milliseconds 300
     Invoke-MeasurementButton $settings ExitMyFinder
     if (-not $process.WaitForExit(10000) -or $process.ExitCode -ne 0) { throw 'Measurement application did not exit cleanly.' }
     if (Test-Path "$profile/last-error.txt") { throw 'Measurement application recorded an error.' }
@@ -90,4 +109,5 @@ try {
 } finally {
     if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
     $process.Dispose()
+    Remove-Item $profile -Recurse -Force
 }

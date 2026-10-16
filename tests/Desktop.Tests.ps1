@@ -10,12 +10,15 @@ public static class MyFinderDesktopTest {
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(Point point);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
+    public static Rect ClientBounds(IntPtr hwnd) { Rect r; GetClientRect(hwnd, out r); var p = new Point(0, 0); ClientToScreen(hwnd, ref p); return new Rect { Left=p.X, Top=p.Y, Right=p.X+r.Right, Bottom=p.Y+r.Bottom }; }
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     public static Rect Bounds(IntPtr hwnd) { Rect r; GetWindowRect(hwnd, out r); return r; }
     [DllImport("user32.dll")] public static extern IntPtr GetThreadDpiAwarenessContext();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint process);
     public static string ProcessName(IntPtr hwnd) { uint process; GetWindowThreadProcessId(hwnd, out process); return System.Diagnostics.Process.GetProcessById((int)process).ProcessName; }
-    [DllImport("user32.dll")] private static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassNameW(IntPtr hwnd, System.Text.StringBuilder name, int count);
     public static string Describe(IntPtr hwnd) { var n=new System.Text.StringBuilder(256); GetClassNameW(hwnd,n,256); var r=Bounds(hwnd); return string.Format("{0} visible={1} dpi={2} rect={3},{4},{5},{6}", n,IsWindowVisible(hwnd),GetDpiForWindow(hwnd),r.Left,r.Top,r.Right,r.Bottom); }
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; public Point(int x, int y) { X=x; Y=y; } }
@@ -38,7 +41,10 @@ public static class MyFinderDesktopTest {
             $Process.Refresh()
             if ($Process.HasExited) { throw "Application exited with $($Process.ExitCode) before '$Title'." }
             $window = Find-AppWindow $Process.Id $Title
-            if ($window) { return $window }
+            if ($window) {
+                $readyId = switch ($Title) { 'MyFinder' { 'MovePanel' }; 'MyFinder - Settings' { 'TogglePanelVisibility' }; 'MyFinder - Details' { 'DetailHeading' } }
+                if (-not $readyId -or (Find-AppElement $window $readyId)) { return $window }
+            }
             Start-Sleep -Milliseconds 100
         } while ([DateTime]::UtcNow -lt $deadline)
         $visible = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,
@@ -52,18 +58,376 @@ public static class MyFinderDesktopTest {
         $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         Start-Sleep -Milliseconds 300
     }
+    function Close-AppWindow($Window) {
+        $handle = [IntPtr]$Window.Current.NativeWindowHandle
+        $Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+        Start-Sleep -Milliseconds 300
+        [MyFinderDesktopTest]::IsWindowVisible($handle) | Should -BeFalse
+    }
+    function Exit-TestApp($Settings) {
+        Select-SettingsPage $Settings Status
+        Invoke-AppButton $Settings ExitMyFinder
+    }
+    function Set-PanelVisibility($Settings, [bool]$Shown) {
+        $button = Find-AppElement $Settings TogglePanelVisibility
+        $button.Current.Name | Should -Be $(if ($Shown) { 'Show panel' } else { 'Hide panel' })
+        Invoke-AppButton $Settings TogglePanelVisibility
+        (Find-AppElement $Settings TogglePanelVisibility).Current.Name | Should -Be $(if ($Shown) { 'Hide panel' } else { 'Show panel' })
+        (Find-AppElement $Settings MonitoringStatus).Current.Name | Should -Match $(if ($Shown) { '^Panel visible$' } else { '^Panel hidden.*Monitoring continues$' })
+    }
+    function Select-SettingsPage($Window, [string]$Page) {
+        $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, ('SettingsPage_' + $Page))
+        $item = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if (-not $item) {
+            Invoke-AppButton $Window TogglePaneButton
+            $item = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        }
+        if (-not $item) {
+            $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $Window.Current.ProcessId)))
+            foreach ($popup in $windows) {
+                $item = $popup.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+                if ($item) { break }
+            }
+        }
+        if (-not $item) {
+            $ids = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.AutomationId } | Where-Object { $_ }
+            throw "Settings page missing: $Page at width $($Window.Current.BoundingRectangle.Width). IDs: $($ids -join ', ')"
+        }
+        $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 300
+    }
+    function Find-AppElement($Window, [string]$Id) {
+        $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $Id)))
+    }
+    function Select-AppChoice($Window, [string]$Name, [string]$Value) {
+        $combo = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition(
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Name)),
+            (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox)))))
+        if (-not $combo) { throw "Choice missing: $Name" }
+        $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
+        Start-Sleep -Milliseconds 100
+        $item = $combo.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Value)))
+        if (-not $item) { throw "Choice value missing: $Name / $Value" }
+        $item.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+        Start-Sleep -Milliseconds 300
+        # Theme changes rebuild native peers; wait for the replacement rather than reusing the old peer.
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $windowNow = Find-AppWindow $Window.Current.ProcessId $Window.Current.Name
+            $combo = $windowNow.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.AndCondition(
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Name)),
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox)))))
+            if (-not $combo) { Start-Sleep -Milliseconds 100 }
+        } while (-not $combo -and [DateTime]::UtcNow -lt $deadline)
+        if (-not $combo) {
+            $names = $windowNow.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            throw "Choice disappeared after selection: $Name. UI: $($names -join ' | ')"
+        }
+        $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+        Start-Sleep -Milliseconds 100
+    }
+    function Resize-TestWindow($Window, [int]$Width, [int]$Height) {
+        $handle = [IntPtr]$Window.Current.NativeWindowHandle
+        $work = [System.Windows.Forms.Screen]::FromHandle($handle).WorkingArea
+        $dpi = [MyFinderDesktopTest]::GetDpiForWindow($handle) / 96.0
+        [MyFinderDesktopTest]::SetWindowPos($handle, [IntPtr]::Zero, ($work.X+8), ($work.Y+80), [Math]::Min([int]($Width*$dpi),$work.Width-16), [Math]::Min([int]($Height*$dpi),$work.Height-88), 0x14) | Out-Null
+        Start-Sleep -Milliseconds 500
+    }
+    function Save-OwnedWindow($Window, [string]$Name) {
+        $handle = [IntPtr]$Window.Current.NativeWindowHandle
+        [MyFinderDesktopTest]::SetWindowPos($handle, [IntPtr](-1), 0, 0, 0, 0, 0x13) | Out-Null
+        Start-Sleep -Milliseconds 300
+        # Native window bounds include invisible resize borders; capture the application's client area only.
+        $r = [MyFinderDesktopTest]::ClientBounds($handle)
+        $width = $r.Right-$r.Left; $height = $r.Bottom-$r.Top
+        foreach ($p in @(@(12,12), @(($width-13),12), @(12,($height-13)), @(($width-13),($height-13)), @([int]($width/2),[int]($height/2)))) {
+            $hit = [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint((New-Object MyFinderDesktopTest+Point(($r.Left+$p[0]),($r.Top+$p[1])))), 2)
+            if ([MyFinderDesktopTest]::Describe($hit) -match '^LockScreenBackstopFrame ' -or [MyFinderDesktopTest]::ProcessName($hit) -eq 'LockApp') { return $false }
+            $hit.ToInt64() | Should -Be $handle.ToInt64() -Because "only the owned application rectangle may be captured; hit=$([MyFinderDesktopTest]::Describe($hit)); process=$([MyFinderDesktopTest]::ProcessName($hit)); target=$([MyFinderDesktopTest]::Describe($handle)); point=$($p -join ','); foreground=$([MyFinderDesktopTest]::Describe([MyFinderDesktopTest]::GetForegroundWindow()))"
+        }
+        $image = New-Object System.Drawing.Bitmap($width,$height); $graphics = [System.Drawing.Graphics]::FromImage($image)
+        try {
+            $graphics.CopyFromScreen($r.Left,$r.Top,0,0,$image.Size)
+            New-Item "$root/TestResults" -ItemType Directory -Force | Out-Null
+            $image.Save("$root/TestResults/$Name.png")
+        } finally { $graphics.Dispose(); $image.Dispose() }
+        return $true
+    }
+    function Wait-AppText($Window, [string]$Pattern) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        $handle = [IntPtr]$Window.Current.NativeWindowHandle
+        do {
+            if (-not [MyFinderDesktopTest]::IsWindowVisible($handle)) { throw "Window dismissed before '$Pattern'. Foreground: $([MyFinderDesktopTest]::Describe([MyFinderDesktopTest]::GetForegroundWindow()))" }
+            $fresh = Find-AppWindow $Window.Current.ProcessId $Window.Current.Name
+            $texts = $fresh.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            if (($texts -join "`n") -match $Pattern) { return $texts }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        ($texts -join "`n") | Should -Match $Pattern
+    }
+    function Send-AppKeys($Window, $Element, [string]$Keys) {
+        $Element.SetFocus(); Start-Sleep -Milliseconds 100
+        $handle = [IntPtr]$Window.Current.NativeWindowHandle
+        if ([MyFinderDesktopTest]::GetForegroundWindow() -ne $handle) { throw 'Keyboard input requires the owned application in the foreground.' }
+        [System.Windows.Forms.SendKeys]::SendWait($Keys)
+        Start-Sleep -Milliseconds 200
+    }
     function Stop-TestApp([Diagnostics.Process]$Process) {
         try {
             if (-not $Process.HasExited) {
                 $settings = Find-AppWindow $Process.Id 'MyFinder - Settings'
-                if ($settings) { Invoke-AppButton $settings ExitMyFinder }
-                if (-not $Process.WaitForExit(10000)) { $Process.Kill(); $Process.WaitForExit() }
+                if ($settings) { Exit-TestApp $settings }
+                $Process.WaitForExit(10000) | Out-Null
             }
-        } finally { $Process.Dispose() }
+        } finally {
+            if (-not $Process.HasExited) { $Process.Kill(); $Process.WaitForExit() }
+            $Process.Dispose()
+        }
     }
 }
 
 Describe 'Published monitoring application' {
+    It 'navigates Fluent settings and reflows details without changing monitoring or pins' {
+        $oldDpi = [MyFinderDesktopTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
+        $profile = Join-Path $TestDrive 'modern-ui'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; Theme='Light'; MetricOrder=@('cpu','memory'); Monitored=@('cpu','memory') } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; $panel = Wait-AppWindow $process MyFinder
+            $initialChoices = $settings.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ComboBox))) | ForEach-Object {
+                    $_.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection() | ForEach-Object { $_.Current.Name }
+                }
+            $initialChoices | Should -Contain 'Horizontal'; $initialChoices | Should -Contain 'Balanced'; $initialChoices | Should -Contain 'Light'
+            $panelDpi = [MyFinderDesktopTest]::GetDpiForWindow([IntPtr]$panel.Current.NativeWindowHandle) / 96.0
+            $panel.Current.BoundingRectangle.Width / $panelDpi | Should -BeLessOrEqual 260
+            $panel.Current.BoundingRectangle.Height / $panelDpi | Should -BeLessOrEqual 64
+            foreach ($width in @(1050,560)) {
+                Resize-TestWindow $settings $width 720
+                foreach ($page in @('Appearance','Placement','Resources','History','Status')) {
+                    Write-Host "Settings width=$width page=$page"
+                    Select-SettingsPage $settings $page
+                    if ($page -eq 'Status') { Find-AppElement $settings ExitMyFinder | Should -Not -BeNullOrEmpty }
+                    else { Find-AppElement $settings ExitMyFinder | Should -BeNullOrEmpty }
+                    (Find-AppElement $settings TogglePanelVisibility).Current.IsOffscreen | Should -BeFalse
+                    (Find-AppElement $settings TogglePanelVisibility).Current.Name | Should -Be 'Hide panel'
+                    (Find-AppElement $settings MonitoringStatus).Current.Name | Should -Be 'Panel visible'
+                }
+            }
+            Select-SettingsPage $settings Appearance
+            Select-AppChoice $settings Appearance Dark
+            Invoke-AppButton $panel Inspect_memory
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            $detailDpi = [MyFinderDesktopTest]::GetDpiForWindow([IntPtr]$details.Current.NativeWindowHandle) / 96.0
+            $details.Current.BoundingRectangle.Width / $detailDpi | Should -BeLessOrEqual 760
+            $details.Current.BoundingRectangle.Height / $detailDpi | Should -BeLessOrEqual 640
+            foreach ($width in @(1050,520)) {
+                Resize-TestWindow $details $width 720
+                (Find-AppElement $details DetailSettings).Current.IsOffscreen | Should -BeFalse
+                $rangeBefore = (Find-AppElement $details DetailRange).Current.BoundingRectangle
+                $readings = Find-AppElement $details DetailReadings
+                $readings.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1,100)
+                Start-Sleep -Milliseconds 200
+                (Find-AppElement $details DetailRange).Current.BoundingRectangle.Top | Should -Be $rangeBefore.Top
+                (Find-AppElement $details DetailRange).Current.IsOffscreen | Should -BeFalse
+                (Find-AppElement $details DetailQuality).Current.IsOffscreen | Should -BeFalse
+                $readings.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1,0)
+                (Find-AppElement $details DetailHeading).Current.BoundingRectangle.Right | Should -BeLessOrEqual $details.Current.BoundingRectangle.Right
+                $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+                ($texts -join "`n") | Should -Match 'Physical memory'
+                ($texts -join "`n") | Should -Match 'Current observations'
+                ($texts -join "`n") | Should -Match 'Resource facts'
+                ($texts -join "`n") | Should -Match 'Recent history'
+                if ($width -eq 1050) {
+                    $rail = Find-AppElement $details InspectRail_cpu
+                    $rail | Should -Not -BeNullOrEmpty
+                    $rail.Current.IsOffscreen | Should -BeFalse
+                    if ($rail) {
+                        $rail.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select(); Start-Sleep -Milliseconds 300
+                        (Find-AppElement $details DetailHeading).Current.Name | Should -Be 'CPU'
+                        $memory = Find-AppElement $details InspectRail_memory
+                        $memory.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select(); Start-Sleep -Milliseconds 300
+                    }
+                }
+            }
+            Invoke-AppButton $details DetailSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            [MyFinderDesktopTest]::IsWindowVisible([IntPtr]$details.Current.NativeWindowHandle) | Should -BeFalse
+            Exit-TestApp $settings; $process.WaitForExit(10000) | Should -BeTrue
+            $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
+            $saved.Theme | Should -Be 'Dark'; @($saved.Monitored).Count | Should -Be 2
+            $saved.Monitored | Should -Contain 'cpu'; $saved.Monitored | Should -Contain 'memory'
+            @($saved.Pins.PSObject.Properties).Count | Should -Be 0
+            Test-Path "$profile/last-error.txt" | Should -BeFalse
+        } finally { Stop-TestApp $process; [MyFinderDesktopTest]::SetThreadDpiAwarenessContext($oldDpi) | Out-Null }
+    }
+    It 'separates compact inclusion and ordering and explains inspection while hidden' {
+        $profile = Join-Path $TestDrive 'settings-actions'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; MetricOrder=@('cpu','memory'); Monitored=@('cpu','memory') } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            (Find-AppElement $settings MoveMetricFirst_cpu).Current.IsEnabled | Should -BeFalse
+            (Find-AppElement $settings MoveMetricFirst_network).Current.IsEnabled | Should -BeFalse
+            Invoke-AppButton $settings MoveMetricFirst_memory
+            (Find-AppElement $settings CompactMetricOrder).Current.Name | Should -Match 'Memory.*CPU$'
+            (Find-AppElement $settings ShowMetric_network).GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState.ToString() | Should -Be 'Off'
+            (Find-AppElement $settings ShowMetric_memory).GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+            Start-Sleep -Milliseconds 300
+            (Find-AppElement $settings MoveMetricFirst_memory).Current.IsEnabled | Should -BeFalse
+            (Find-AppElement $settings CompactMetricOrder).Current.Name | Should -Be 'Panel order: CPU'
+            Select-SettingsPage $settings Resources
+            (Find-AppElement $settings InspectResource_cpu).Current.IsEnabled | Should -BeTrue
+            (Find-AppElement $settings InspectResource_memory).Current.IsEnabled | Should -BeTrue
+            Set-PanelVisibility $settings $false
+            (Find-AppElement $settings InspectResource_cpu).Current.IsEnabled | Should -BeFalse
+            (Find-AppElement $settings InspectResource_memory).Current.IsEnabled | Should -BeFalse
+            (Wait-AppText $settings 'Show the panel to inspect resources') | Out-Null
+            Set-PanelVisibility $settings $true
+            Invoke-AppButton $settings InspectResource_memory
+            $details = Wait-AppWindow $process 'MyFinder - Details'
+            Close-AppWindow $details
+            $process.HasExited | Should -BeFalse
+            $panel = Wait-AppWindow $process MyFinder; Invoke-AppButton $panel OpenSettings
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Exit-TestApp $settings
+            $process.WaitForExit(10000) | Should -BeTrue
+            $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
+            @($saved.MetricOrder).Count | Should -Be 1; $saved.MetricOrder[0] | Should -Be 'cpu'
+            @($saved.Monitored).Count | Should -Be 2; $saved.Monitored | Should -Contain 'memory'
+            @($saved.Pins.PSObject.Properties).Count | Should -Be 0
+        } finally { Stop-TestApp $process }
+    }
+    It 'holds chart observations only on explicit inspection and returns to live' {
+        $profile = Join-Path $TestDrive 'chart-actions'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; Monitored=@('cpu','memory') } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Close-AppWindow $settings
+            $panel = Wait-AppWindow $process MyFinder; Start-Sleep -Seconds 3
+            Invoke-AppButton $panel Inspect_memory; $details = Wait-AppWindow $process 'MyFinder - Details'
+            $chart = Find-AppElement $details HistoryChart
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Match '^Live'
+            Find-AppElement $details BackToLive | Should -BeNullOrEmpty
+            Send-AppKeys $details $chart '{LEFT}'
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Match 'Historical inspection.*\nIn use:.*GiB.*Up to date'
+            $held = (Find-AppElement $details HistoryInspection).Current.Name
+            Start-Sleep -Seconds 2
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Be $held
+            Invoke-AppButton $details BackToLive
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Match '^Live'
+            Send-AppKeys $details $chart '{HOME}'; Send-AppKeys $details $chart '{END}'
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Match '^Live'
+            Send-AppKeys $details $chart '{LEFT}'
+            Select-AppChoice $details 'History range in minutes' '1'
+            (Find-AppElement $details HistoryInspection).Current.Name | Should -Match '^Live'
+            Send-AppKeys $details $chart '{ESC}'
+            [MyFinderDesktopTest]::IsWindowVisible([IntPtr]$details.Current.NativeWindowHandle) | Should -BeFalse
+            Invoke-AppButton $panel OpenSettings; $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Exit-TestApp $settings; $process.WaitForExit(10000) | Should -BeTrue
+        } finally { Stop-TestApp $process }
+    }
+    It 'limits address reveal to its resource and lifetime without changing monitoring' {
+        $adapter = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' -and $_.Id -match '^\{?[0-9a-fA-F-]{36}\}?$' } | Select-Object -First 1
+        if (-not $adapter) { Set-ItResult -Skipped -Because 'A native active adapter is required.'; return }
+        $id = 'network:' + ([Guid]$adapter.Id).ToString('D')
+        $profile = Join-Path $TestDrive 'privacy-actions'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; MetricOrder=@('cpu','network'); Monitored=@('cpu','memory',$id); Pins=@{network=$id} } | ConvertTo-Json -Depth 5 | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Close-AppWindow $settings
+            $panel = Wait-AppWindow $process MyFinder; Start-Sleep -Seconds 2
+            Invoke-AppButton $panel Inspect_network; $details = Wait-AppWindow $process 'MyFinder - Details'
+            (Find-AppElement $details AddressPrivacyStatus).Current.Name | Should -Be 'Addresses are hidden.'
+            Invoke-AppButton $details RevealAddresses
+            (Wait-AppText $details 'Visible for 30 seconds') | Out-Null
+            (Find-AppElement $details RevealAddresses).Current.Name | Should -Be 'Hide addresses'
+            (Find-AppElement $details RevealedAddresses).Current.Name.Length | Should -BeGreaterThan 0
+            Invoke-AppButton $details RevealAddresses
+            (Find-AppElement $details RevealedAddresses).Current.Name | Should -BeNullOrEmpty
+            Invoke-AppButton $details RevealAddresses
+            (Wait-AppText $details 'Visible for 30 seconds') | Out-Null
+            Start-Sleep -Seconds 31
+            (Find-AppElement $details AddressPrivacyStatus).Current.Name | Should -Be 'Addresses are hidden.'
+            (Find-AppElement $details RevealedAddresses).Current.Name | Should -BeNullOrEmpty
+            Invoke-AppButton $details RevealAddresses
+            Select-AppChoice $details 'Inspect resource without changing monitoring' 'CPU'
+            Close-AppWindow $details
+            Invoke-AppButton $panel Inspect_network; $details = Wait-AppWindow $process 'MyFinder - Details'
+            (Find-AppElement $details AddressPrivacyStatus).Current.Name | Should -Be 'Addresses are hidden.'
+            (Find-AppElement $details RevealedAddresses).Current.Name | Should -BeNullOrEmpty
+            Invoke-AppButton $details DetailSettings; $settings = Wait-AppWindow $process 'MyFinder - Settings'; Exit-TestApp $settings
+            $process.WaitForExit(10000) | Should -BeTrue
+            $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
+            $saved.Pins.network | Should -Be $id; $saved.Monitored | Should -Contain $id
+        } finally { Stop-TestApp $process }
+    }
+    It 'captures owned light and dark UI surfaces for visual review' {
+        $oldDpi = [MyFinderDesktopTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
+        $profile = Join-Path $TestDrive 'visual-ui'; New-Item $profile -ItemType Directory | Out-Null
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; Theme='Light'; MetricOrder=@('cpu','memory'); Monitored=@('cpu','memory') } | ConvertTo-Json | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; $panel = Wait-AppWindow $process MyFinder
+            foreach ($theme in @('Light','Dark')) {
+                Select-SettingsPage $settings Appearance; Select-AppChoice $settings Appearance $theme
+                Resize-TestWindow $settings 1050 720
+                if (-not (Save-OwnedWindow $settings "ui-settings-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned UI; screenshots require an unlocked designated session.'; return }
+                (Find-AppElement $settings SettingsBody).GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern).SetScrollPercent(-1,100)
+                Start-Sleep -Milliseconds 200
+                if (-not (Save-OwnedWindow $settings "ui-settings-metrics-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned UI.'; return }
+                foreach ($page in @('Placement','Resources','History','Status')) {
+                    Select-SettingsPage $settings $page
+                    if (-not (Save-OwnedWindow $settings "ui-settings-$page-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned UI.'; return }
+                }
+                Select-SettingsPage $settings Appearance; Resize-TestWindow $settings 560 720
+                if (-not (Save-OwnedWindow $settings "ui-settings-narrow-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned UI.'; return }
+                Close-AppWindow $settings
+                if (-not (Save-OwnedWindow $panel "ui-panel-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned panel.'; return }
+                Invoke-AppButton $panel Inspect_memory; $details = Wait-AppWindow $process 'MyFinder - Details'; Start-Sleep -Seconds 2
+                if (-not (Save-OwnedWindow $details "ui-details-default-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned details.'; return }
+                Resize-TestWindow $details 1050 720
+                if (-not (Save-OwnedWindow $details "ui-details-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned details.'; return }
+                Resize-TestWindow $details 520 720
+                if (-not (Save-OwnedWindow $details "ui-details-narrow-$theme")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned details.'; return }
+                Invoke-AppButton $details DetailSettings; $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            }
+            Exit-TestApp $settings; $process.WaitForExit(10000) | Should -BeTrue
+        } finally { Stop-TestApp $process; [MyFinderDesktopTest]::SetThreadDpiAwarenessContext($oldDpi) | Out-Null }
+    }
+    It 'captures four-metric panels across styles orientations and themes' {
+        $oldDpi = [MyFinderDesktopTest]::SetThreadDpiAwarenessContext([IntPtr](-4))
+        $profile = Join-Path $TestDrive 'four-metric-ui'; New-Item $profile -ItemType Directory | Out-Null
+        $adapter = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' -and $_.Id -match '^\{?[0-9a-fA-F-]{36}\}?$' } | Select-Object -First 1
+        $volume = Get-CimInstance Win32_Volume | Where-Object { $_.DriveLetter -eq $env:SystemDrive } | Select-Object -First 1
+        $pins = @{}; $monitored = @('cpu','memory')
+        if ($adapter) { $pins.network = 'network:' + ([Guid]$adapter.Id).ToString('D'); $monitored += $pins.network }
+        if ($volume) { $pins.storage = 'volume:' + $volume.DeviceID.ToLowerInvariant(); $monitored += $pins.storage }
+        @{ Version=1; Retreat=$false; NetworkSelectionMade=$true; StorageSelectionMade=$true; MetricOrder=@('cpu','memory','network','storage'); Monitored=$monitored; Pins=$pins } | ConvertTo-Json -Depth 5 | Set-Content "$profile/preferences.json" -Encoding UTF8
+        $process = Start-Process "$root/artifacts/app/MyFinder.exe" -ArgumentList '--profile', ('"'+$profile+'"'), '--settings' -PassThru
+        try {
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; $panel = Wait-AppWindow $process MyFinder
+            Start-Sleep -Seconds 3
+            foreach ($theme in @('Light','Dark')) {
+                foreach ($style in @('Balanced','Minimal','Capsules')) {
+                    foreach ($orientation in @('Horizontal','Vertical')) {
+                        Select-SettingsPage $settings Appearance
+                        Select-AppChoice $settings Appearance $theme; Select-AppChoice $settings Style $style; Select-AppChoice $settings Orientation $orientation
+                        Close-AppWindow $settings
+                        if (-not (Save-OwnedWindow $panel "ui-four-$theme-$style-$orientation")) { Set-ItResult -Skipped -Because 'LockApp occludes the owned panel.'; return }
+                        $bounds = $panel.Current.BoundingRectangle
+                        foreach ($metric in @('cpu','memory','network','storage')) {
+                            $tile = Find-AppElement $panel ('Inspect_' + $metric)
+                            $tile.Current.IsOffscreen | Should -BeFalse
+                            $tile.Current.BoundingRectangle.Right | Should -BeLessOrEqual $bounds.Right
+                            $tile.Current.BoundingRectangle.Bottom | Should -BeLessOrEqual $bounds.Bottom
+                        }
+                        Invoke-AppButton $panel OpenSettings; $settings = Wait-AppWindow $process 'MyFinder - Settings'
+                    }
+                }
+            }
+            Exit-TestApp $settings; $process.WaitForExit(10000) | Should -BeTrue
+        } finally { Stop-TestApp $process; [MyFinderDesktopTest]::SetThreadDpiAwarenessContext($oldDpi) | Out-Null }
+    }
     It 'keeps a fixed storage tile while inspecting, monitoring and comparing separate resources' {
         $volumes = @(Get-CimInstance Win32_Volume | Where-Object { $_.FileSystem -eq 'NTFS' } | Select-Object -First 3)
         if ($volumes.Count -lt 2) { Set-ItResult -Skipped -Because 'Two native NTFS volumes are required for independent storage UI inspection.'; return }
@@ -77,20 +441,22 @@ Describe 'Published monitoring application' {
             $bounds = $panel.Current.BoundingRectangle
             Invoke-AppButton $panel Inspect_storage
             $details = Wait-AppWindow $process 'MyFinder - Details'
-            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            $texts = Wait-AppText $details 'Volume capacity'
             ($texts -join "`n") | Should -Match 'Volume capacity'
             ($texts -join "`n") | Should -Match 'Caller available'
             Invoke-AppButton $details DetailSettings
-            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Invoke-AppButton $settings RefreshResources
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Select-SettingsPage $settings Resources; Invoke-AppButton $settings RefreshResources
             Invoke-AppButton $settings ('InspectResource_' + $ids[1])
             $details = Wait-AppWindow $process 'MyFinder - Details'
             $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
             ($texts -join "`n") | Should -Match ([regex]::Escape($ids[1]))
-            Invoke-AppButton $details StorageOverview
-            $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
+            Select-AppChoice $details 'Inspect resource without changing monitoring' 'Storage overview'
+            # Invoke queues UI work; observe the resulting page without invoking again or reopening it.
+            $texts = Wait-AppText $details 'All monitored volumes and devices'
             ($texts -join "`n") | Should -Match 'All monitored volumes and devices'
             Invoke-AppButton $details DetailSettings
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Select-SettingsPage $settings Resources
             $toggles = $settings.FindAll([System.Windows.Automation.TreeScope]::Descendants,
                 (New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::CheckBox)))
             $compare = @($toggles | Where-Object { $_.Current.Name -like 'Compare Disk *' } | Select-Object -First 2)
@@ -105,7 +471,7 @@ Describe 'Published monitoring application' {
             $panel.Current.BoundingRectangle.Width | Should -Be $bounds.Width
             $panel.Current.BoundingRectangle.Height | Should -Be $bounds.Height
             Invoke-AppButton $details DetailSettings
-            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Invoke-AppButton $settings ExitMyFinder
+            $settings = Wait-AppWindow $process 'MyFinder - Settings'; Exit-TestApp $settings
             $process.WaitForExit(10000) | Should -BeTrue
             $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
             $saved.Pins.storage | Should -Be $ids[0]
@@ -134,6 +500,7 @@ Describe 'Published monitoring application' {
             ($texts -join "`n") | Should -Not -Match 'Current unicast addresses:|Physical address:'
             Invoke-AppButton $details DetailSettings
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
+            Select-SettingsPage $settings Resources
             Invoke-AppButton $settings RefreshResources
             Invoke-AppButton $settings ('InspectResource_' + $ids[1])
             $details = Wait-AppWindow $process 'MyFinder - Details'
@@ -143,9 +510,9 @@ Describe 'Published monitoring application' {
             $panel.Current.BoundingRectangle.Height | Should -Be $bounds.Height
             Invoke-AppButton $details DetailSettings
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
-            Invoke-AppButton $settings HidePanel
-            Invoke-AppButton $settings ShowPanel
-            Invoke-AppButton $settings ExitMyFinder
+            Set-PanelVisibility $settings $false
+            Set-PanelVisibility $settings $true
+            Exit-TestApp $settings
             $process.WaitForExit(10000) | Should -BeTrue
             $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
             $saved.Pins.network | Should -Be $ids[0]
@@ -162,16 +529,17 @@ Describe 'Published monitoring application' {
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
             $panel = Wait-AppWindow $process MyFinder
             $panelHandle = [IntPtr]$panel.Current.NativeWindowHandle
-            $statusCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'MonitoringStatus')
+            Select-SettingsPage $settings Status
+            $statusCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'MonitoringDiagnostics')
             $status = $settings.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $statusCondition)
             $before = [int]([regex]::Match($status.Current.Name, '([\d,]+) retained observations').Groups[1].Value.Replace(',',''))
-            Invoke-AppButton $settings HidePanel
+            Set-PanelVisibility $settings $false
             [MyFinderDesktopTest]::IsWindowVisible($panelHandle) | Should -BeFalse
             $process.HasExited | Should -BeFalse
             Start-Sleep -Seconds 2
             $after = [int]([regex]::Match($status.Current.Name, '([\d,]+) retained observations').Groups[1].Value.Replace(',',''))
             $after | Should -BeGreaterThan $before
-            Invoke-AppButton $settings ShowPanel
+            Set-PanelVisibility $settings $true
             $panel = Wait-AppWindow $process MyFinder
             [MyFinderDesktopTest]::IsWindowVisible($panelHandle) | Should -BeTrue
             Invoke-AppButton $panel Inspect_cpu
@@ -179,11 +547,11 @@ Describe 'Published monitoring application' {
             Start-Sleep -Seconds 2
             $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }
             ($texts -join "`n") | Should -Match 'Current snapshot'
-            Invoke-AppButton $details CloseDetails
+            Close-AppWindow $details
             $process.Refresh(); $process.HasExited | Should -BeFalse
             Invoke-AppButton $panel OpenSettings
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
-            Invoke-AppButton $settings ExitMyFinder
+            Exit-TestApp $settings
             $process.WaitForExit(10000) | Should -BeTrue
             $process.ExitCode | Should -Be 0
             Test-Path "$profile/preferences.json" | Should -BeTrue
@@ -214,7 +582,7 @@ Describe 'Published monitoring application' {
                         $r.Bottom | Should -BeLessOrEqual ($bounds.Bottom + 1)
                     }
                     ([MyFinderDesktopTest]::GetWindowLongPtrW([IntPtr]$panel.Current.NativeWindowHandle, -20).ToInt64() -band 0x08000000) | Should -Not -Be 0
-                    Invoke-AppButton $settings ExitMyFinder
+                    Exit-TestApp $settings
                     $process.WaitForExit(10000) | Should -BeTrue
                 } finally { Stop-TestApp $process }
             }
@@ -233,13 +601,15 @@ Describe 'Published monitoring application' {
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
             $panel = Wait-AppWindow $process MyFinder
             Start-Sleep -Milliseconds 500
-            $appearance = ($settings.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }) -join ' '
-            Invoke-AppButton $settings CloseSettings
+            Select-SettingsPage $settings Status
+            $appearance = (Find-AppElement $settings MonitoringDiagnostics).Current.Name
+            $appearance | Should -Match 'Background opacity:|Solid background:'
+            Close-AppWindow $settings
             $nativeBounds = [MyFinderDesktopTest]::Bounds([IntPtr]$panel.Current.NativeWindowHandle)
             $bounds = New-Object System.Drawing.Rectangle($nativeBounds.Left, $nativeBounds.Top, ($nativeBounds.Right-$nativeBounds.Left), ($nativeBounds.Bottom-$nativeBounds.Top))
             $underlay.FormBorderStyle = 'None'; $underlay.ShowInTaskbar = $false; $underlay.TopMost = $true
             $underlay.StartPosition = 'Manual'
-            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]($bounds.Width+12), [int]($bounds.Height+12))
+            $underlay.Bounds = New-Object System.Drawing.Rectangle([int]$bounds.X, [int]$bounds.Y, [int]($bounds.Width+80), [int]($bounds.Height+80))
             $underlay.Show()
             foreach ($color in @([System.Drawing.Color]::Black, [System.Drawing.Color]::White)) {
                 $underlay.BackColor = $color; $underlay.Refresh(); [System.Windows.Forms.Application]::DoEvents()
@@ -253,8 +623,8 @@ Describe 'Published monitoring application' {
                     return
                 }
                 $hit.ToInt64() | Should -Be $panel.Current.NativeWindowHandle -Because "panel=$([MyFinderDesktopTest]::Describe([IntPtr]$panel.Current.NativeWindowHandle)); underlay=$([MyFinderDesktopTest]::Describe($underlay.Handle)); hit=$([MyFinderDesktopTest]::Describe($hit)); context=$([MyFinderDesktopTest]::GetThreadDpiAwarenessContext()); old=$oldDpi"
-                # Check an exposed owned-underlay pixel before attributing the panel's alpha response.
-                $underlayPoint = New-Object MyFinderDesktopTest+Point([int]($bounds.Right+4), [int]($bounds.Y+4))
+                # Probe outside the DWM shadow as well as outside the panel's hit rectangle.
+                $underlayPoint = New-Object MyFinderDesktopTest+Point([int]($bounds.Right+48), [int]($bounds.Y+4))
                 [MyFinderDesktopTest]::GetAncestor([MyFinderDesktopTest]::WindowFromPoint($underlayPoint), 2).ToInt64() | Should -Be $underlay.Handle.ToInt64()
                 $probe = New-Object System.Drawing.Bitmap(1,1)
                 $probeGraphics = [System.Drawing.Graphics]::FromImage($probe)
@@ -297,7 +667,7 @@ Describe 'Published monitoring application' {
             $underlay.Close()
             Invoke-AppButton $panel OpenSettings
             $settings = Wait-AppWindow $process 'MyFinder - Settings'
-            Invoke-AppButton $settings ExitMyFinder
+            Exit-TestApp $settings
             $process.WaitForExit(10000) | Should -BeTrue
         } finally {
             foreach ($image in $images) { $image.Dispose() }
@@ -317,7 +687,7 @@ Describe 'Published monitoring application' {
             $duplicate.WaitForExit(10000) | Should -BeTrue
             $duplicate.ExitCode | Should -Be 0
             $process.Refresh(); $process.HasExited | Should -BeFalse
-            Invoke-AppButton $settings ExitMyFinder
+            Exit-TestApp $settings
             $process.WaitForExit(10000) | Should -BeTrue
             $saved = Get-Content "$profile/preferences.json" -Raw | ConvertFrom-Json
             $saved.Shown | Should -BeFalse
